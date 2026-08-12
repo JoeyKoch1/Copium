@@ -1,3 +1,4 @@
+const vscode = acquireVsCodeApi();
 const messagesDiv = document.getElementById('messages');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('sendBtn');
