@@ -89,3 +89,7 @@ npm test
 ## License
 
 MIT
+
+## Disclaimer
+
+This project was developed with assistance from Kilo Code for bug finding, code review, and implementation support. Kilo Code helped identify issues, suggest fixes, and implement features throughout the development process.

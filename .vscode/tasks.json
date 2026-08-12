@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "compile",
+      "path": ".",
+      "problemMatcher": [],
+      "label": "npm: compile",
+      "detail": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 && node copy-webview.js"
+    }
+  ]
+}

@@ -21,8 +21,7 @@
     "free"
   ],
   "activationEvents": [
-    "onCommand:copium.startAgentTask",
-    "onChatParticipant:@copium"
+    "onView:copium.chatView"
   ],
   "main": "./dist/extension.js",
   "scripts": {
