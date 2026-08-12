@@ -1,0 +1,1 @@
+export { registerChatParticipant } from './participant';
