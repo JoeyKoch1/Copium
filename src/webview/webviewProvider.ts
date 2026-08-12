@@ -27,6 +27,16 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtmlContent(webviewView.webview);
 
+    const disposable = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('copium')) {
+        this.postMessage({ type: 'settingsChanged' });
+      }
+    });
+
+    webviewView.onDidDispose(() => {
+      disposable.dispose();
+    });
+
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.command) {
         case 'sendMessage': {
@@ -49,6 +59,7 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           ];
 
           let fullResponse = '';
+          let didError = false;
           const callbacks = {
             onToken: (token: string) => {
               fullResponse += token;
@@ -61,21 +72,29 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
               this.postMessage({ type: 'done', tokenCount: this.tokenCount });
             },
             onError: (error: Error) => {
+              didError = true;
               this.postMessage({ type: 'error', text: error.message });
             },
           };
 
-          const toolCalls = await provider.sendChat(messages, callbacks, tools);
-          if (toolCalls && toolCalls.length > 0) {
-            for (const tc of toolCalls) {
-              this.toolCallCount++;
-              const result = await toolRegistry.execute(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
-              const resultText = typeof result === 'string' ? result : JSON.stringify(result);
-              this.messageHistory.push({ role: 'tool', content: resultText });
-              this.postMessage({ type: 'toolResult', name: tc.function.name, text: resultText, toolCount: this.toolCallCount });
+          try {
+            const toolCalls = await provider.sendChat(messages, callbacks, tools);
+            if (toolCalls && toolCalls.length > 0) {
+              for (const tc of toolCalls) {
+                this.toolCallCount++;
+                const result = await toolRegistry.execute(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
+                const resultText = typeof result === 'string' ? result : JSON.stringify(result);
+                this.messageHistory.push({ role: 'tool', content: resultText });
+                this.postMessage({ type: 'toolResult', name: tc.function.name, text: resultText, toolCount: this.toolCallCount });
+              }
             }
+            if (!didError) {
+              this.postMessage({ type: 'stats', tokenCount: this.tokenCount, toolCount: this.toolCallCount, messageCount: this.messageHistory.length });
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unknown error occurred';
+            this.postMessage({ type: 'error', text: message });
           }
-          this.postMessage({ type: 'stats', tokenCount: this.tokenCount, toolCount: this.toolCallCount, messageCount: this.messageHistory.length });
           break;
         }
         case 'clearHistory': {

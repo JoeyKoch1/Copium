@@ -82,14 +82,25 @@ function appendToolResult(name, text) {
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
+let loadingTimeout = null;
+
 function showLoading() {
   sendBtn.disabled = true;
   sendBtn.classList.add('loading');
+  if (loadingTimeout) clearTimeout(loadingTimeout);
+  loadingTimeout = setTimeout(function() {
+    hideLoading();
+    appendMessage('error', 'Request timed out. Please try again or check your API key.');
+  }, 30000);
 }
 
 function hideLoading() {
   sendBtn.disabled = false;
   sendBtn.classList.remove('loading');
+  if (loadingTimeout) {
+    clearTimeout(loadingTimeout);
+    loadingTimeout = null;
+  }
 }
 
 sendBtn.addEventListener('click', function() {
@@ -189,7 +200,11 @@ window.addEventListener('message', function(event) {
       if (agentsEl) agentsEl.value = String(data.maxAgents || 3);
       break;
     case 'settingsSaved':
+      vscode.postMessage({ command: 'getSettings' });
       appendMessage('system', 'Settings saved successfully');
+      break;
+    case 'settingsChanged':
+      vscode.postMessage({ command: 'getSettings' });
       break;
   }
 });
