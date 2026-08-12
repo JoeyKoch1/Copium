@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { createProvider, getPermissionLevel } from '../settings';
 import { ToolRegistry } from '../agent/toolRegistry';
+import { SwarmManager } from '../swarm';
 
 export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'copium.chatView';
@@ -41,13 +42,19 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
       try {
         switch (data.command) {
         case 'sendMessage': {
+          const text = (data.text || '').trim();
+          if (text.startsWith('/swarm')) {
+            await handleSwarmFromWebview(text.replace('/swarm', '').trim());
+            return;
+          }
+
           const provider = await createProvider();
           if (!provider) {
             this.postMessage({ type: 'error', text: 'No provider configured. Open Copium settings.' });
             return;
           }
 
-          const userMessage = data.text as string;
+          const userMessage = text;
           this.messageHistory.push({ role: 'user', content: userMessage });
           this.postMessage({ type: 'userMessage', text: userMessage });
 
@@ -81,6 +88,7 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           try {
             const toolCalls = await provider.sendChat(messages, callbacks, tools);
             if (toolCalls && toolCalls.length > 0) {
+              this.postMessage({ type: 'status', state: 'tool', text: 'Using tool: ' + toolCalls[0].function.name });
               for (const tc of toolCalls) {
                 this.toolCallCount++;
                 const result = await toolRegistry.execute(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
@@ -153,6 +161,67 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handleSwarmFromWebview(prompt: string): Promise<void> {
+    const provider = await createProvider();
+    if (!provider) {
+      this.postMessage({ type: 'error', text: 'No provider configured. Open Copium settings.' });
+      return;
+    }
+
+    const maxAgents = 3;
+    const swarm = new SwarmManager(provider);
+
+    await swarm.registerAgent({
+      id: 'explorer',
+      name: 'Explorer',
+      description: 'Scans codebase and gathers context',
+      systemPrompt: 'You are an explorer agent. Your job is to scan the codebase, find relevant files, and gather context. Be thorough and report file paths and key findings.',
+    });
+
+    await swarm.registerAgent({
+      id: 'coder',
+      name: 'Coder',
+      description: 'Implements changes',
+      systemPrompt: 'You are a coder agent. Your job is to implement changes based on the gathered context. Write clean, working code.',
+    });
+
+    await swarm.registerAgent({
+      id: 'reviewer',
+      name: 'Reviewer',
+      description: 'Reviews changes for correctness',
+      systemPrompt: 'You are a reviewer agent. Your job is to review code changes for correctness, security, and best practices. Report issues clearly.',
+    });
+
+    const agents = [
+      { id: 'explorer', name: 'Explorer' },
+      { id: 'coder', name: 'Coder' },
+      { id: 'reviewer', name: 'Reviewer' },
+    ].slice(0, maxAgents);
+
+    this.postMessage({ type: 'swarmStart', agents });
+    this.messageHistory.push({ role: 'user', content: '/swarm ' + prompt });
+    this.postMessage({ type: 'userMessage', text: '/swarm ' + prompt });
+
+    const results = await swarm.spawnTask({
+      id: 'swarm_' + Date.now(),
+      prompt,
+      roles: agents,
+      maxIterations: 3,
+      createdAt: Date.now(),
+    });
+
+    for (const [agentId, messages] of results) {
+      const agent = agents.find((a) => a.id === agentId);
+      const agentName = agent ? agent.name : agentId;
+      this.postMessage({ type: 'swarmAgentUpdate', agentId, agentName, status: 'completed' });
+      const content = messages.map((m) => m.content).join('\n');
+      this.postMessage({ type: 'assistant', text: '[' + agentName + '] ' + content });
+    }
+
+    this.postMessage({ type: 'swarmEnd' });
+    this.postMessage({ type: 'done' });
+  }
+
   private getHtmlContent(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist/webview/chat.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist/webview/chat.css'));
@@ -190,6 +259,11 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
             <path d="M2 16L7.5 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+      </div>
+      <div id="statusBar" class="status-bar">
+        <div id="statusIndicator" class="status-indicator ready"></div>
+        <span id="statusText" class="status-text">Ready</span>
+        <div id="statusIcons" class="status-icons"></div>
       </div>
     </main>
 

@@ -5,6 +5,9 @@ const sendBtn = document.getElementById('sendBtn');
 const clearBtn = document.getElementById('clearBtn');
 const tabs = document.querySelectorAll('.tab');
 const tabContents = document.querySelectorAll('.tab-content');
+const statusIndicator = document.getElementById('statusIndicator');
+const statusText = document.getElementById('statusText');
+const statusIcons = document.getElementById('statusIcons');
 
 let currentAssistantDiv = null;
 let sessionStartTime = Date.now();
@@ -16,6 +19,9 @@ let activityLog = [];
 let pendingUserText = '';
 let responseTimeout = null;
 let isProcessing = false;
+let thinkingDiv = null;
+let activeAgents = new Set();
+let currentToolName = '';
 
 function switchTab(tabId) {
   tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === tabId); });
@@ -26,10 +32,77 @@ tabs.forEach(function(tab) {
   tab.addEventListener('click', function() { switchTab(tab.dataset.tab); });
 });
 
+function setStatus(state, text) {
+  if (!statusIndicator || !statusText) return;
+  statusIndicator.className = 'status-indicator ' + state;
+  statusText.textContent = text;
+}
+
+function addAgentBadge(agentId, agentName) {
+  if (!statusIcons) return;
+  if (activeAgents.has(agentId)) return;
+  activeAgents.add(agentId);
+  const badge = document.createElement('span');
+  badge.className = 'swarm-agent-badge active';
+  badge.id = 'agent-' + agentId;
+  badge.textContent = agentName || agentId;
+  statusIcons.appendChild(badge);
+}
+
+function removeAgentBadge(agentId) {
+  if (!statusIcons) return;
+  activeAgents.delete(agentId);
+  const badge = document.getElementById('agent-' + agentId);
+  if (badge) badge.remove();
+}
+
+function clearAgentBadges() {
+  if (!statusIcons) return;
+  activeAgents.clear();
+  statusIcons.innerHTML = '';
+}
+
 function formatTime(ms) {
   const minutes = Math.floor(ms / 60000);
   const seconds = Math.floor((ms % 60000) / 1000);
   return minutes + 'm ' + seconds + 's';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+
+  html = html.replace(/```([\s\S]*?)```/g, function(_, code) {
+    return '<pre><code>' + code.replace(/^\n+|\n+$/g, '') + '</code></pre>';
+  });
+
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+
+  html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
 }
 
 function updateDashboard() {
@@ -72,18 +145,40 @@ function addActivity(text) {
 function appendMessage(role, text) {
   const div = document.createElement('div');
   div.className = 'message ' + role;
-  div.textContent = text;
+  if (role === 'assistant' || role === 'tool') {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
   return div;
 }
 
 function appendToolResult(name, text) {
+  currentToolName = name;
   const div = document.createElement('div');
   div.className = 'message tool';
-  div.innerHTML = '<strong>[' + name + ']</strong> ' + text;
+  div.innerHTML = '<strong>[' + name + ']</strong> ' + renderMarkdown(text);
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function showThinking(label) {
+  if (thinkingDiv) return;
+  thinkingDiv = document.createElement('div');
+  thinkingDiv.className = 'message assistant thinking';
+  const labelText = label ? label + ' is thinking' : 'Copium is thinking';
+  thinkingDiv.innerHTML = '<span>' + labelText + '</span> <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+  messagesDiv.appendChild(thinkingDiv);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function hideThinking() {
+  if (thinkingDiv) {
+    thinkingDiv.remove();
+    thinkingDiv = null;
+  }
 }
 
 function startResponseWatchdog() {
@@ -91,9 +186,11 @@ function startResponseWatchdog() {
   responseTimeout = setTimeout(function() {
     if (pendingUserText) {
       hideLoading();
+      hideThinking();
       appendMessage('error', 'Request timed out. The extension may not be activated.');
       pendingUserText = '';
       isProcessing = false;
+      setStatus('error', 'Timed out');
     }
   }, 20000);
 }
@@ -108,13 +205,16 @@ function stopResponseWatchdog() {
 function showLoading() {
   sendBtn.disabled = true;
   sendBtn.classList.add('loading');
+  setStatus('thinking', 'Thinking...');
   startResponseWatchdog();
 }
 
 function hideLoading() {
   sendBtn.disabled = false;
   sendBtn.classList.remove('loading');
+  hideThinking();
   stopResponseWatchdog();
+  setStatus('ready', 'Ready');
 }
 
 function sendMessage(text) {
@@ -131,6 +231,7 @@ function sendMessage(text) {
     isProcessing = false;
     pendingUserText = '';
     hideLoading();
+    setStatus('error', 'Send failed');
     return;
   }
 
@@ -189,15 +290,24 @@ window.addEventListener('message', function(event) {
         currentAssistantDiv.className = 'message assistant';
         messagesDiv.appendChild(currentAssistantDiv);
       }
-      currentAssistantDiv.textContent += data.text;
+      currentAssistantDiv.innerHTML = renderMarkdown(currentAssistantDiv.textContent + data.text);
       tokenCount = data.tokenCount || tokenCount;
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
       updateDashboard();
+      break;
+    case 'status':
+      setStatus(data.state || 'thinking', data.text || 'Processing...');
+      break;
+    case 'assistant':
+      hideThinking();
+      appendMessage('assistant', data.text);
+      addActivity('Assistant: ' + (data.text || '').slice(0, 50));
       break;
     case 'toolResult':
       toolCount = data.toolCount || toolCount;
       appendToolResult(data.name, data.text);
       addActivity('Tool: ' + data.name);
+      setStatus('tool', 'Using tool: ' + (currentToolName || data.name));
       break;
     case 'error':
       pendingUserText = '';
@@ -206,6 +316,7 @@ window.addEventListener('message', function(event) {
       isProcessing = false;
       appendMessage('error', 'Error: ' + data.text);
       addActivity('Error: ' + data.text);
+      setStatus('error', 'Error');
       break;
     case 'done':
       pendingUserText = '';
@@ -214,6 +325,29 @@ window.addEventListener('message', function(event) {
       isProcessing = false;
       currentAssistantDiv = null;
       updateDashboard();
+      break;
+    case 'thinking':
+      showThinking(data.label);
+      setStatus('thinking', data.label ? data.label + ' is thinking' : 'Thinking...');
+      break;
+    case 'swarmStart':
+      clearAgentBadges();
+      if (data.agents && Array.isArray(data.agents)) {
+        data.agents.forEach(function(agent) {
+          addAgentBadge(agent.id, agent.name);
+        });
+      }
+      setStatus('swarm', 'Swarm active: ' + (data.agents ? data.agents.length : 0) + ' agents');
+      appendMessage('system', 'Swarm started with ' + (data.agents ? data.agents.length : 0) + ' agents');
+      break;
+    case 'swarmEnd':
+      clearAgentBadges();
+      setStatus('ready', 'Swarm complete');
+      break;
+    case 'swarmAgentUpdate':
+      if (data.agentId && data.status) {
+        setStatus('thinking', data.agentId + ': ' + data.status);
+      }
       break;
     case 'cleared':
       pendingUserText = '';
@@ -227,7 +361,9 @@ window.addEventListener('message', function(event) {
       activityLog = [];
       messagesDiv.innerHTML = '';
       currentAssistantDiv = null;
+      clearAgentBadges();
       updateDashboard();
+      setStatus('ready', 'Ready');
       break;
     case 'stats':
       tokenCount = data.tokenCount || tokenCount;

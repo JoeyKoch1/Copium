@@ -90,9 +90,15 @@ export class SearchFilesTool extends BaseTool {
     const query = typeof args.query === 'string' ? args.query : '';
     const maxResults = typeof args.maxResults === 'number' ? args.maxResults : 50;
 
+    if (!context.workspaceRoot) {
+      return { success: false, error: 'No workspace folder available. Open a folder in VS Code to use search.' };
+    }
+
     try {
+      const baseUri = vscode.Uri.file(context.workspaceRoot);
+      const relativePattern = new vscode.RelativePattern(baseUri, pattern);
       const files = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(context.workspaceRoot, pattern),
+        relativePattern,
         '**/node_modules/**',
         maxResults,
       );
