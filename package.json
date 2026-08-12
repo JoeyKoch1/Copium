@@ -143,6 +143,16 @@
           "default": "propose-edits",
           "description": "Agent permission level for file, terminal, and git operations."
         },
+        "copium.swarm.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable swarm agent mode for parallel background agents with shared memory."
+        },
+        "copium.swarm.maxAgents": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum number of swarm agents to run in parallel."
+        },
         "copium.telemetry.enabled": {
           "type": "boolean",
           "default": false,

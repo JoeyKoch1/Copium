@@ -66,6 +66,16 @@ export function getPermissionLevel(): 'read-only' | 'propose-edits' | 'auto-exec
   return valid.includes(raw as string) ? (raw as 'read-only' | 'propose-edits' | 'auto-execute') : 'propose-edits';
 }
 
+export function getSwarmEnabled(): boolean {
+  const config = vscode.workspace.getConfiguration('copium');
+  return config.get<boolean>('swarm.enabled', false);
+}
+
+export function getSwarmMaxAgents(): number {
+  const config = vscode.workspace.getConfiguration('copium');
+  return config.get<number>('swarm.maxAgents', 3);
+}
+
 export function setProviderType(provider: ProviderType): void {
   const config = vscode.workspace.getConfiguration('copium');
   config.update('provider', provider, vscode.ConfigurationTarget.Global);
