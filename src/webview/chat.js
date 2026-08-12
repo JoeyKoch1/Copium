@@ -10,16 +10,16 @@ let sessionStartTime = Date.now();
 let tokenCount = 0;
 let toolCount = 0;
 let messageCount = 0;
-let tokenHistory: number[] = [];
-let activityLog: Array<{ time: string; text: string }> = [];
+let tokenHistory = [];
+let activityLog = [];
 
 function switchTab(tabId) {
-  tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
-  tabContents.forEach(c => c.classList.toggle('hidden', c.id !== 'tab-' + tabId));
+  tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === tabId); });
+  tabContents.forEach(function(c) { c.classList.toggle('hidden', c.id !== 'tab-' + tabId); });
 }
 
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+tabs.forEach(function(tab) {
+  tab.addEventListener('click', function() { switchTab(tab.dataset.tab); });
 });
 
 function formatTime(ms) {
@@ -42,8 +42,8 @@ function updateDashboard() {
 
   const chart = document.getElementById('tokenChart');
   if (chart && tokenHistory.length > 0) {
-    const max = Math.max(...tokenHistory);
-    const points = tokenHistory.map((v, i) => {
+    const max = Math.max.apply(null, tokenHistory);
+    const points = tokenHistory.map(function(v, i) {
       const x = (i / Math.max(tokenHistory.length - 1, 1)) * 100;
       const y = 100 - (v / max) * 100;
       return x + ',' + y;
@@ -53,13 +53,15 @@ function updateDashboard() {
 
   const log = document.getElementById('activityLog');
   if (log) {
-    log.innerHTML = activityLog.slice(-10).reverse().map(a => '<div class="activity-item"><span class="activity-time">' + a.time + '</span><span>' + a.text + '</span></div>').join('');
+    log.innerHTML = activityLog.slice(-10).reverse().map(function(a) {
+      return '<div class="activity-item"><span class="activity-time">' + a.time + '</span><span>' + a.text + '</span></div>';
+    }).join('');
   }
 }
 
 function addActivity(text) {
   const now = new Date();
-  activityLog.push({ time: now.toLocaleTimeString(), text });
+  activityLog.push({ time: now.toLocaleTimeString(), text: text });
   updateDashboard();
 }
 
@@ -90,38 +92,38 @@ function hideLoading() {
   sendBtn.classList.remove('loading');
 }
 
-sendBtn.addEventListener('click', () => {
+sendBtn.addEventListener('click', function() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
   currentAssistantDiv = null;
   messageCount++;
-  vscode.postMessage({ command: 'sendMessage', text });
+  vscode.postMessage({ command: 'sendMessage', text: text });
   showLoading();
 });
 
-input.addEventListener('keydown', (e) => {
+input.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendBtn.click();
   }
 });
 
-clearBtn.addEventListener('click', () => {
+clearBtn.addEventListener('click', function() {
   vscode.postMessage({ command: 'clearHistory' });
 });
 
-document.getElementById('saveSettings')?.addEventListener('click', () => {
-  const provider = document.getElementById('settingProvider')?.value || 'openrouter';
-  const model = document.getElementById('settingModel')?.value || 'openrouter/free';
-  const permission = document.getElementById('settingPermission')?.value || 'propose-edits';
-  const swarmEnabled = (document.getElementById('settingSwarm') as HTMLInputElement)?.checked ?? false;
-  const maxAgents = parseInt(document.getElementById('settingMaxAgents')?.value || '3', 10);
+document.getElementById('saveSettings').addEventListener('click', function() {
+  const provider = document.getElementById('settingProvider').value || 'openrouter';
+  const model = document.getElementById('settingModel').value || 'openrouter/free';
+  const permission = document.getElementById('settingPermission').value || 'propose-edits';
+  const swarmEnabled = document.getElementById('settingSwarm').checked || false;
+  const maxAgents = parseInt(document.getElementById('settingMaxAgents').value || '3', 10);
 
-  vscode.postMessage({ command: 'saveSettings', settings: { provider, model, permission, swarmEnabled, maxAgents } });
+  vscode.postMessage({ command: 'saveSettings', settings: { provider: provider, model: model, permission: permission, swarmEnabled: swarmEnabled, maxAgents: maxAgents } });
 });
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', function(event) {
   const data = event.data;
   switch (data.type) {
     case 'userMessage':
@@ -183,7 +185,7 @@ window.addEventListener('message', (event) => {
       if (providerEl) providerEl.value = data.provider || 'openrouter';
       if (modelEl) modelEl.value = data.model || 'openrouter/free';
       if (permissionEl) permissionEl.value = data.permission || 'propose-edits';
-      if (swarmEl) (swarmEl as HTMLInputElement).checked = data.swarmEnabled ?? false;
+      if (swarmEl) swarmEl.checked = data.swarmEnabled || false;
       if (agentsEl) agentsEl.value = String(data.maxAgents || 3);
       break;
     case 'settingsSaved':
