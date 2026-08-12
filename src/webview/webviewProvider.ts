@@ -104,6 +104,7 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
       <button id="clearBtn" class="icon-btn" title="Clear history">Clear</button>
     </div>
     <div id="messages" class="messages"></div>
+    <div id="loading" class="loading">Copium is thinking...</div>
     <div class="input-area">
       <textarea id="input" rows="1" placeholder="Type a message..."></textarea>
       <button id="sendBtn" class="send-btn">Send</button>

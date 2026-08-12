@@ -44,13 +44,21 @@
     "vitest": "^1.2.0"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copium",
+          "title": "Copium",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "copium": [
         {
           "type": "webview",
           "id": "copium.chatView",
-          "name": "Copium",
-          "iconPath": "media/icon.svg",
+          "name": "Copium Chat",
           "contextualTitle": "Copium Chat"
         }
       ]
