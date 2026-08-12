@@ -32,8 +32,8 @@ Why cope with expensive AI coding tools when Copium is free. Copium is a Visual 
 1. Install the extension
 2. Open Settings (Ctrl+,) and search for "Copium"
 3. Set your provider and model
-4. Open the Chat view (Ctrl+Shift+I)
-5. Type `@copium hello` to start chatting
+4. Click the Copium icon in the left sidebar to open the chat UI
+5. Or open the Chat view (Ctrl+Shift+I) and type `@copium hello` to start chatting
 
 ### Swarm Mode
 

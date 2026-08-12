@@ -1,9 +1,15 @@
 import * as vscode from 'vscode';
 import { registerChatParticipant } from './chat';
 import { createProvider } from './settings';
+import { CopiumWebviewProvider } from './webview/webviewProvider';
 
 export function activate(context: vscode.ExtensionContext): void {
   registerChatParticipant(context);
+
+  const webviewProvider = new CopiumWebviewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(CopiumWebviewProvider.viewType, webviewProvider),
+  );
 
   const disposable = vscode.commands.registerCommand('copium.startAgentTask', async () => {
     const provider = await createProvider();

@@ -26,7 +26,7 @@
   ],
   "main": "./dist/extension.js",
   "scripts": {
-    "compile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "compile": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 && node copy-webview.js",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --watch",
     "lint": "eslint src test --ext .ts",
     "format": "prettier --write src test",
@@ -48,6 +48,17 @@
     "vitest": "^1.2.0"
   },
   "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "copium.chatView",
+          "name": "Copium",
+          "iconPath": "Assets/logo.webp",
+          "contextualTitle": "Copium Chat"
+        }
+      ]
+    },
     "chatParticipants": [
       {
         "id": "@copium",
