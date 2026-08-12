@@ -6,6 +6,10 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'copium.chatView';
   private _view?: vscode.WebviewView;
   private messageHistory: Array<{ role: string; content: string }> = [];
+  private tokenCount = 0;
+  private toolCallCount = 0;
+  private startTime = Date.now();
+  private tokenHistory: number[] = [];
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -48,11 +52,13 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           const callbacks = {
             onToken: (token: string) => {
               fullResponse += token;
-              this.postMessage({ type: 'token', text: token });
+              this.tokenCount += token.length;
+              this.tokenHistory.push(this.tokenCount);
+              this.postMessage({ type: 'token', text: token, tokenCount: this.tokenCount });
             },
             onDone: () => {
               this.messageHistory.push({ role: 'assistant', content: fullResponse });
-              this.postMessage({ type: 'done' });
+              this.postMessage({ type: 'done', tokenCount: this.tokenCount });
             },
             onError: (error: Error) => {
               this.postMessage({ type: 'error', text: error.message });
@@ -62,17 +68,55 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           const toolCalls = await provider.sendChat(messages, callbacks, tools);
           if (toolCalls && toolCalls.length > 0) {
             for (const tc of toolCalls) {
+              this.toolCallCount++;
               const result = await toolRegistry.execute(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
               const resultText = typeof result === 'string' ? result : JSON.stringify(result);
               this.messageHistory.push({ role: 'tool', content: resultText });
-              this.postMessage({ type: 'toolResult', name: tc.function.name, text: resultText });
+              this.postMessage({ type: 'toolResult', name: tc.function.name, text: resultText, toolCount: this.toolCallCount });
             }
           }
+          this.postMessage({ type: 'stats', tokenCount: this.tokenCount, toolCount: this.toolCallCount, messageCount: this.messageHistory.length });
           break;
         }
         case 'clearHistory': {
           this.messageHistory = [];
-          this.postMessage({ type: 'cleared' });
+          this.tokenCount = 0;
+          this.toolCallCount = 0;
+          this.startTime = Date.now();
+          this.tokenHistory = [];
+          this.postMessage({ type: 'cleared', tokenCount: 0, toolCount: 0, messageCount: 0 });
+          break;
+        }
+        case 'getStats': {
+          this.postMessage({
+            type: 'stats',
+            tokenCount: this.tokenCount,
+            toolCount: this.toolCallCount,
+            messageCount: this.messageHistory.length,
+            tokenHistory: this.tokenHistory,
+          });
+          break;
+        }
+        case 'saveSettings': {
+          const settings = data.settings as Record<string, unknown>;
+          vscode.workspace.getConfiguration('copium').update('provider', settings.provider, vscode.ConfigurationTarget.Global);
+          vscode.workspace.getConfiguration('copium').update('openrouter.model', settings.model, vscode.ConfigurationTarget.Global);
+          vscode.workspace.getConfiguration('copium').update('permissionLevel', settings.permission, vscode.ConfigurationTarget.Global);
+          vscode.workspace.getConfiguration('copium').update('swarm.enabled', settings.swarmEnabled, vscode.ConfigurationTarget.Global);
+          vscode.workspace.getConfiguration('copium').update('swarm.maxAgents', settings.maxAgents, vscode.ConfigurationTarget.Global);
+          this.postMessage({ type: 'settingsSaved' });
+          break;
+        }
+        case 'getSettings': {
+          const config = vscode.workspace.getConfiguration('copium');
+          this.postMessage({
+            type: 'settings',
+            provider: config.get<string>('provider', 'openrouter'),
+            model: config.get<string>('openrouter.model', 'openrouter/free'),
+            permission: config.get<string>('permissionLevel', 'propose-edits'),
+            swarmEnabled: config.get<boolean>('swarm.enabled', false),
+            maxAgents: config.get<number>('swarm.maxAgents', 3),
+          });
           break;
         }
       }
@@ -94,22 +138,113 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Copium Chat</title>
+  <title>Copium</title>
   <link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <span class="title">Copium</span>
-      <button id="clearBtn" class="icon-btn" title="Clear history">Clear</button>
-    </div>
-    <div id="messages" class="messages"></div>
-    <div id="loading" class="loading">Copium is thinking...</div>
-    <div class="input-area">
-      <textarea id="input" rows="1" placeholder="Type a message..."></textarea>
-      <button id="sendBtn" class="send-btn">Send</button>
-    </div>
+  <div class="app">
+    <nav class="tabs">
+      <button class="tab active" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <main class="tab-content" id="tab-chat">
+      <div class="chat-header">
+        <div class="chat-title">
+          <span class="logo">C</span>
+          <span>Copium Chat</span>
+        </div>
+        <button id="clearBtn" class="icon-btn" title="Clear history">Clear</button>
+      </div>
+      <div id="messages" class="messages"></div>
+      <div class="input-area">
+        <textarea id="input" rows="1" placeholder="Type a message..." autofocus></textarea>
+        <button id="sendBtn" class="send-btn" title="Send message">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14.5 2L7 9L14.5 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 16L7.5 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </main>
+
+    <main class="tab-content hidden" id="tab-dashboard">
+      <div class="dashboard-header">
+        <h2>Dashboard</h2>
+        <span class="badge" id="providerBadge">OpenRouter</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Messages</div>
+          <div class="stat-value" id="statMessages">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Tokens</div>
+          <div class="stat-value" id="statTokens">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Tools Used</div>
+          <div class="stat-value" id="statTools">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Session Time</div>
+          <div class="stat-value" id="statTime">0m</div>
+        </div>
+      </div>
+      <div class="dashboard-section">
+        <h3>Token Usage</h3>
+        <div class="token-chart" id="tokenChart"></div>
+      </div>
+      <div class="dashboard-section">
+        <h3>Recent Activity</h3>
+        <div id="activityLog" class="activity-log"></div>
+      </div>
+    </main>
+
+    <main class="tab-content hidden" id="tab-settings">
+      <div class="settings-header">
+        <h2>Settings</h2>
+      </div>
+      <div class="settings-group">
+        <h3>Provider</h3>
+        <div class="setting-item">
+          <label for="settingProvider">Provider</label>
+          <select id="settingProvider">
+            <option value="openrouter">OpenRouter</option>
+            <option value="byok">Bring Your Own Key</option>
+            <option value="ollama">Ollama</option>
+            <option value="vscodeLm">VS Code LM</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label for="settingModel">Model</label>
+          <input type="text" id="settingModel" value="openrouter/free" placeholder="e.g. openrouter/free">
+        </div>
+      </div>
+      <div class="settings-group">
+        <h3>Behavior</h3>
+        <div class="setting-item">
+          <label for="settingPermission">Permission Level</label>
+          <select id="settingPermission">
+            <option value="propose-edits">Propose Edits</option>
+            <option value="read-only">Read Only</option>
+            <option value="auto-execute">Auto Execute</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label for="settingSwarm">Enable Swarm Mode</label>
+          <input type="checkbox" id="settingSwarm">
+        </div>
+        <div class="setting-item">
+          <label for="settingMaxAgents">Max Swarm Agents</label>
+          <input type="number" id="settingMaxAgents" value="3" min="1" max="10">
+        </div>
+      </div>
+      <button id="saveSettings" class="primary-btn">Save Settings</button>
+    </main>
   </div>
+
   <script src="${scriptUri}"></script>
 </body>
 </html>`;
