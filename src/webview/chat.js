@@ -12,6 +12,9 @@ let toolCount = 0;
 let messageCount = 0;
 let tokenHistory = [];
 let activityLog = [];
+let pendingUserText = '';
+let responseTimeout = null;
+let isProcessing = false;
 
 function switchTab(tabId) {
   tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === tabId); });
@@ -82,41 +85,73 @@ function appendToolResult(name, text) {
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-let loadingTimeout = null;
+function startResponseWatchdog() {
+  if (responseTimeout) clearTimeout(responseTimeout);
+  responseTimeout = setTimeout(function() {
+    if (pendingUserText) {
+      hideLoading();
+      appendMessage('error', 'Request timed out. The extension may not be activated.');
+      pendingUserText = '';
+      isProcessing = false;
+    }
+  }, 20000);
+}
+
+function stopResponseWatchdog() {
+  if (responseTimeout) {
+    clearTimeout(responseTimeout);
+    responseTimeout = null;
+  }
+}
 
 function showLoading() {
   sendBtn.disabled = true;
   sendBtn.classList.add('loading');
-  if (loadingTimeout) clearTimeout(loadingTimeout);
-  loadingTimeout = setTimeout(function() {
-    hideLoading();
-    appendMessage('error', 'Request timed out. Please try again or check your API key.');
-  }, 30000);
+  startResponseWatchdog();
 }
 
 function hideLoading() {
   sendBtn.disabled = false;
   sendBtn.classList.remove('loading');
-  if (loadingTimeout) {
-    clearTimeout(loadingTimeout);
-    loadingTimeout = null;
+  stopResponseWatchdog();
+}
+
+function sendMessage(text) {
+  if (!text || isProcessing) return;
+  isProcessing = true;
+  pendingUserText = text;
+  appendMessage('user', text);
+  addActivity('You: ' + text);
+
+  try {
+    vscode.postMessage({ command: 'sendMessage', text: text });
+  } catch (err) {
+    appendMessage('error', 'Failed to send message: ' + (err.message || err));
+    isProcessing = false;
+    pendingUserText = '';
+    hideLoading();
+    return;
   }
+
+  showLoading();
 }
 
 sendBtn.addEventListener('click', function() {
   const text = input.value.trim();
-  if (!text) return;
   input.value = '';
   currentAssistantDiv = null;
   messageCount++;
-  vscode.postMessage({ command: 'sendMessage', text: text });
-  showLoading();
+  sendMessage(text);
 });
 
 input.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    sendBtn.click();
+    const text = input.value.trim();
+    input.value = '';
+    currentAssistantDiv = null;
+    messageCount++;
+    sendMessage(text);
   }
 });
 
@@ -138,12 +173,16 @@ window.addEventListener('message', function(event) {
   const data = event.data;
   switch (data.type) {
     case 'userMessage':
+      pendingUserText = '';
+      stopResponseWatchdog();
       hideLoading();
-      appendMessage('user', data.text);
-      addActivity('You: ' + data.text);
+      isProcessing = false;
       break;
     case 'token':
+      pendingUserText = '';
+      stopResponseWatchdog();
       hideLoading();
+      isProcessing = false;
       if (!currentAssistantDiv) {
         currentAssistantDiv = document.createElement('div');
         currentAssistantDiv.className = 'message assistant';
@@ -160,17 +199,26 @@ window.addEventListener('message', function(event) {
       addActivity('Tool: ' + data.name);
       break;
     case 'error':
+      pendingUserText = '';
+      stopResponseWatchdog();
       hideLoading();
+      isProcessing = false;
       appendMessage('error', 'Error: ' + data.text);
       addActivity('Error: ' + data.text);
       break;
     case 'done':
+      pendingUserText = '';
+      stopResponseWatchdog();
       hideLoading();
+      isProcessing = false;
       currentAssistantDiv = null;
       updateDashboard();
       break;
     case 'cleared':
+      pendingUserText = '';
+      stopResponseWatchdog();
       hideLoading();
+      isProcessing = false;
       tokenCount = data.tokenCount || 0;
       toolCount = data.toolCount || 0;
       messageCount = data.messageCount || 0;

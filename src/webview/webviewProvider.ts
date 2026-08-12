@@ -38,7 +38,8 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
-      switch (data.command) {
+      try {
+        switch (data.command) {
         case 'sendMessage': {
           const provider = await createProvider();
           if (!provider) {
@@ -139,6 +140,10 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           break;
         }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown extension error';
+      this.postMessage({ type: 'error', text: 'Extension error: ' + message });
+    }
     });
   }
 
