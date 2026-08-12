@@ -53,7 +53,7 @@
           "type": "webview",
           "id": "copium.chatView",
           "name": "Copium",
-          "iconPath": "Assets/logo.webp",
+          "iconPath": "media/icon.svg",
           "contextualTitle": "Copium Chat"
         }
       ]
