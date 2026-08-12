@@ -525,6 +525,12 @@ body {
   font-style: italic;
 }
 
+.thinking-label {
+  font-weight: 500;
+  color: var(--copium-text);
+  font-style: normal;
+}
+
 .typing-dot {
   display: inline-block;
   width: 6px;

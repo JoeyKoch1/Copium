@@ -62,7 +62,7 @@ export class CopiumWebviewProvider implements vscode.WebviewViewProvider {
           const tools = toolRegistry.getDefinitions();
 
           const messages = [
-            { role: 'system', content: 'You are Copium, a helpful coding agent.' },
+            { role: 'system', content: 'You are Copium, a helpful coding agent. Use tools when needed. Always confirm destructive actions. You have access to a spawnSwarm tool that launches multiple autonomous agents in parallel for complex tasks. Use it when the task requires parallel exploration, coding, and review.' },
             ...this.messageHistory,
           ];
 

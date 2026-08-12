@@ -75,32 +75,61 @@ function escapeHtml(text) {
 }
 
 function renderMarkdown(text) {
-  let html = escapeHtml(text);
+  let html = text;
 
+  const codeBlocks = [];
   html = html.replace(/```([\s\S]*?)```/g, function(_, code) {
-    return '<pre><code>' + code.replace(/^\n+|\n+$/g, '') + '</code></pre>';
+    codeBlocks.push(code.replace(/^\n+|\n+$/g, ''));
+    return '\n```CODEBLOCK_' + (codeBlocks.length - 1) + '```\n';
   });
 
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  html = html.replace(/^#{1,6}\s+(.+)$/gm, function(_, title) {
+    const level = _.charAt(0) === '#' ? _.indexOf(' ') : 2;
+    const tag = 'h' + Math.min(level + 1, 6);
+    return '<' + tag + '>' + title + '</' + tag + '>';
+  });
 
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
   html = html.replace(/_(.+?)_/g, '<em>$1</em>');
 
-  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
-
-  html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-
-  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  const listItems = [];
+  html = html.replace(/^[ \t]*[-*+]\s+(.+)$/gm, function(_, item) {
+    listItems.push('<li>' + item + '</li>');
+    return '';
+  });
+  html = html.replace(/^[ \t]*\d+\.\s+(.+)$/gm, function(_, item) {
+    listItems.push('<li>' + item + '</li>');
+    return '';
+  });
+  if (listItems.length > 0) {
+    html = html + '<ul>' + listItems.join('') + '</ul>';
+  }
 
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
-  html = html.replace(/\n/g, '<br>');
+  html = html.replace(/```CODEBLOCK_(\d+)```/g, function(_, idx) {
+    return '<pre><code>' + codeBlocks[idx] + '</code></pre>';
+  });
+
+  const lines = html.split('\n');
+  const processed = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+      processed.push('<hr>');
+    } else if (trimmed.startsWith('> ')) {
+      processed.push('<blockquote>' + trimmed.slice(2) + '</blockquote>');
+    } else if (trimmed === '') {
+      processed.push('<br>');
+    } else {
+      processed.push(lines[i]);
+    }
+  }
+  html = processed.join('\n');
 
   return html;
 }
@@ -169,7 +198,7 @@ function showThinking(label) {
   thinkingDiv = document.createElement('div');
   thinkingDiv.className = 'message assistant thinking';
   const labelText = label ? label + ' is thinking' : 'Copium is thinking';
-  thinkingDiv.innerHTML = '<span>' + labelText + '</span> <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+  thinkingDiv.innerHTML = '<span class="thinking-label">' + labelText + '</span> <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
   messagesDiv.appendChild(thinkingDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }

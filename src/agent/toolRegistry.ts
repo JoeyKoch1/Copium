@@ -10,6 +10,7 @@ import {
   GitStatusTool,
   GitDiffTool,
   GetDocumentSymbolsTool,
+  SpawnSwarmTool,
 } from './tools';
 
 export class ToolRegistry {
@@ -24,6 +25,7 @@ export class ToolRegistry {
     this.register(new GitStatusTool());
     this.register(new GitDiffTool());
     this.register(new GetDocumentSymbolsTool());
+    this.register(new SpawnSwarmTool());
   }
 
   register(tool: BaseTool): void {

@@ -33,7 +33,7 @@ async function handleRequest(request: vscode.ChatRequest, response: vscode.ChatR
   const tools = toolRegistry.getDefinitions();
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: 'You are Copium, a helpful coding agent. Use tools when needed. Always confirm destructive actions.' },
+    { role: 'system', content: 'You are Copium, a helpful coding agent. Use tools when needed. Always confirm destructive actions. You have access to a spawnSwarm tool that launches multiple autonomous agents in parallel for complex tasks. Use it when the task requires parallel exploration, coding, and review.' },
     { role: 'user', content: prompt },
   ];
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { BaseTool, ToolContext, ToolResult } from './baseTool';
+import { SwarmManager } from '../swarm';
 
 export class ReadFileTool extends BaseTool {
   name = 'readFile';
@@ -296,6 +297,87 @@ export class GetDocumentSymbolsTool extends BaseTool {
       };
 
       return { success: true, data: { symbols: flatten(symbols) } };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+export class SpawnSwarmTool extends BaseTool {
+  name = 'spawnSwarm';
+  description = 'Spawn multiple autonomous agents in parallel with shared memory.';
+  parameters = {
+    type: 'object',
+    properties: {
+      task: { type: 'string', description: 'The task for the swarm to accomplish.' },
+      maxAgents: { type: 'number', description: 'Maximum number of agents to spawn.' },
+    },
+    required: ['task'],
+  };
+
+  protected requiresConfirmation(_args: Record<string, unknown>): boolean {
+    return true;
+  }
+
+  async execute(context: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+    const task = typeof args.task === 'string' ? args.task : '';
+    const maxAgents = typeof args.maxAgents === 'number' ? args.maxAgents : 3;
+
+    if (!task) {
+      return { success: false, error: 'Task description is required for swarm mode.' };
+    }
+
+    try {
+      const provider = await (await import('../settings')).createProvider();
+      if (!provider) {
+        return { success: false, error: 'No provider configured. Cannot spawn swarm agents.' };
+      }
+
+      const swarm = new SwarmManager(provider);
+
+      await swarm.registerAgent({
+        id: 'explorer',
+        name: 'Explorer',
+        description: 'Scans codebase and gathers context',
+        systemPrompt: 'You are an explorer agent. Your job is to scan the codebase, find relevant files, and gather context. Be thorough and report file paths and key findings.',
+      });
+
+      await swarm.registerAgent({
+        id: 'coder',
+        name: 'Coder',
+        description: 'Implements changes',
+        systemPrompt: 'You are a coder agent. Your job is to implement changes based on the gathered context. Write clean, working code.',
+      });
+
+      await swarm.registerAgent({
+        id: 'reviewer',
+        name: 'Reviewer',
+        description: 'Reviews changes for correctness',
+        systemPrompt: 'You are a reviewer agent. Your job is to review code changes for correctness, security, and best practices. Report issues clearly.',
+      });
+
+      const agents = [
+        { id: 'explorer', name: 'Explorer' },
+        { id: 'coder', name: 'Coder' },
+        { id: 'reviewer', name: 'Reviewer' },
+      ].slice(0, Math.min(maxAgents, 3));
+
+      const results = await swarm.spawnTask({
+        id: 'swarm_' + Date.now(),
+        task,
+        roles: agents,
+        maxIterations: 3,
+        createdAt: Date.now(),
+      });
+
+      const summaries: string[] = [];
+      for (const [agentId, messages] of results) {
+        const agent = agents.find((a) => a.id === agentId);
+        const agentName = agent ? agent.name : agentId;
+        summaries.push('[' + agentName + '] ' + messages.map((m) => m.content).join('\n'));
+      }
+
+      return { success: true, data: { result: summaries.join('\n\n') } };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
