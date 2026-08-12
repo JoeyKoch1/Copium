@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { OllamaProvider } from './ollama';
-import { OpenRouterProvider } from './openrouter';
-import { BYOKProvider } from './byok';
+import { ModelProvider } from './providers/index';
+import { OllamaProvider } from './providers/ollama';
+import { OpenRouterProvider } from './providers/openrouter';
+import { BYOKProvider } from './providers/byok';
 
 export type ProviderType = 'ollama' | 'openrouter' | 'byok' | 'vscodeLm';
 

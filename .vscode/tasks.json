@@ -3,10 +3,10 @@
   "tasks": [
     {
       "type": "shell",
-      "command": "npx esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 && node copy-webview.js",
+      "command": "node build.js",
       "problemMatcher": [],
       "label": "npm: compile",
-      "detail": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 && node copy-webview.js",
+      "detail": "Build extension with esbuild and copy webview files",
       "group": "build"
     }
   ]
