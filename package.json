@@ -1,179 +1,40 @@
 {
   "name": "copium",
-  "displayName": "Copium",
-  "description": "100% free, no-account, no-subscription coding agent",
-  "version": "0.2.0",
-  "publisher": "copium",
-  "engines": {
-    "vscode": "^1.85.0"
+  "version": "1.0.0",
+  "description": "100% free, no-account, no-subscription coding agent for the terminal",
+  "type": "module",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
+  "bin": {
+    "copium": "./src/index.ts"
   },
-  "categories": [
-    "Machine Learning",
-    "Programming Languages",
-    "Other"
-  ],
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "bunx eslint src test --ext .ts",
+    "format": "bunx prettier --write src test",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
   "keywords": [
     "ai",
     "coding agent",
+    "cli",
+    "tui",
     "openrouter",
     "ollama",
     "local",
     "free"
   ],
-  "main": "./dist/extension.js",
-  "scripts": {
-    "compile": "node build.js",
-    "watch": "npx esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --watch",
-    "lint": "eslint src test --ext .ts",
-    "format": "prettier --write src test",
-    "test": "vitest run",
-    "pretest": "npm run compile",
-    "vscode:prepublish": "npm run compile"
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "@vscode/test-electron": "^2.3.0",
-    "esbuild": "^0.20.0",
-    "eslint": "^8.56.0",
-    "eslint-plugin-vitest": "^0.5.4",
-    "prettier": "^3.2.0",
-    "typescript": "^5.3.0",
-    "vitest": "^1.2.0"
-  },
-  "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "copium",
-          "title": "Copium",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "copium": [
-        {
-          "type": "webview",
-          "id": "copium.chatView",
-          "name": "Copium Chat",
-          "contextualTitle": "Copium Chat"
-        }
-      ]
-    },
-    "chatParticipants": [
-      {
-        "id": "@copium",
-        "name": "Copium",
-        "description": "Free, multi-provider coding agent",
-        "iconPath": "media/icon.svg",
-        "commands": [
-          {
-            "name": "explain",
-            "description": "Explain the current selection or context"
-          },
-          {
-            "name": "fix",
-            "description": "Fix the current diagnostic or issue"
-          },
-          {
-            "name": "edit",
-            "description": "Apply an edit to the current file"
-          }
-        ]
-      }
-    ],
-    "commands": [
-      {
-        "command": "copium.startAgentTask",
-        "title": "Copium: Start Agent Task"
-      },
-      {
-        "command": "copium.explainSelection",
-        "title": "Copium: Explain Selection"
-      },
-      {
-        "command": "copium.fixDiagnostic",
-        "title": "Copium: Fix Diagnostic"
-      },
-      {
-        "command": "copium.applyEdit",
-        "title": "Copium: Apply Edit"
-      }
-    ],
-    "configuration": {
-      "title": "Copium",
-      "properties": {
-        "copium.provider": {
-          "type": "string",
-          "enum": [
-            "ollama",
-            "openrouter",
-            "byok",
-            "vscodeLm"
-          ],
-          "default": "openrouter",
-          "description": "Model provider to use for completions and chat."
-        },
-        "copium.openrouter.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "OpenRouter API key. Stored securely via SecretStorage."
-        },
-        "copium.openrouter.model": {
-          "type": "string",
-          "default": "openrouter/free",
-          "description": "OpenRouter model ID. Use 'openrouter/free' for auto-routed free models."
-        },
-        "copium.byok.endpoint": {
-          "type": "string",
-          "default": "https://api.deepseek.com/v1",
-          "description": "BYOK OpenAI-compatible endpoint URL."
-        },
-        "copium.byok.apiKey": {
-          "type": "string",
-          "default": "",
-          "description": "BYOK API key. Stored securely via SecretStorage."
-        },
-        "copium.byok.model": {
-          "type": "string",
-          "default": "deepseek-chat",
-          "description": "BYOK model name."
-        },
-        "copium.ollama.endpoint": {
-          "type": "string",
-          "default": "http://localhost:11434",
-          "description": "Ollama server endpoint URL."
-        },
-        "copium.ollama.model": {
-          "type": "string",
-          "default": "",
-          "description": "Ollama model name. Leave empty to use the first available model."
-        },
-        "copium.permissionLevel": {
-          "type": "string",
-          "enum": ["read-only", "propose-edits", "auto-execute"],
-          "default": "propose-edits",
-          "description": "Agent permission level for file, terminal, and git operations."
-        },
-        "copium.swarm.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable swarm agent mode for parallel background agents with shared memory."
-        },
-        "copium.swarm.maxAgents": {
-          "type": "number",
-          "default": 3,
-          "description": "Maximum number of swarm agents to run in parallel."
-        },
-        "copium.telemetry.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable anonymous usage telemetry."
-        }
-      }
-    }
-  }
+  "license": "MIT"
 }

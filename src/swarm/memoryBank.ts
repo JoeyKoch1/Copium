@@ -1,19 +1,28 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import { MemoryEntry, SwarmMessage } from './types';
 
-const SWARM_DIR = '.swarm';
-const MEMORY_DIR = path.join(SWARM_DIR, 'memory');
-const LOGS_DIR = path.join(SWARM_DIR, 'logs');
-
 export class MemoryBank {
-  async ensureDirectories(): Promise<void> {
-    await fs.mkdir(SWARM_DIR, { recursive: true });
-    await fs.mkdir(MEMORY_DIR, { recursive: true });
-    await fs.mkdir(LOGS_DIR, { recursive: true });
+  private swarmDir: string;
+  private memoryDir: string;
+  private logsDir: string;
+
+  constructor(baseDir: string) {
+    this.swarmDir = path.join(baseDir, '.swarm');
+    this.memoryDir = path.join(this.swarmDir, 'memory');
+    this.logsDir = path.join(this.swarmDir, 'logs');
   }
 
-  async logInteraction(sessionId: string, messages: SwarmMessage[], agentId?: string): Promise<void> {
+  async ensureDirectories(): Promise<void> {
+    await fs.mkdir(this.memoryDir, { recursive: true });
+    await fs.mkdir(this.logsDir, { recursive: true });
+  }
+
+  async logInteraction(
+    sessionId: string,
+    messages: SwarmMessage[],
+    agentId?: string,
+  ): Promise<void> {
     await this.ensureDirectories();
 
     const entry: MemoryEntry = {
@@ -25,7 +34,7 @@ export class MemoryBank {
       createdAt: Date.now(),
     };
 
-    const filePath = path.join(MEMORY_DIR, `${sessionId}.jsonl`);
+    const filePath = path.join(this.memoryDir, `${sessionId}.jsonl`);
     await fs.appendFile(filePath, JSON.stringify(entry) + '\n', 'utf-8');
 
     await this.writeLog('interactions', sessionId, {
@@ -38,7 +47,7 @@ export class MemoryBank {
 
   async getSessionMemory(sessionId: string): Promise<MemoryEntry[]> {
     await this.ensureDirectories();
-    const filePath = path.join(MEMORY_DIR, `${sessionId}.jsonl`);
+    const filePath = path.join(this.memoryDir, `${sessionId}.jsonl`);
 
     try {
       const content = await fs.readFile(filePath, 'utf-8');
@@ -76,7 +85,7 @@ export class MemoryBank {
       compressedAt: Date.now(),
     };
 
-    const filePath = path.join(MEMORY_DIR, `${sessionId}.jsonl`);
+    const filePath = path.join(this.memoryDir, `${sessionId}.jsonl`);
     await fs.writeFile(filePath, JSON.stringify(compressed) + '\n', 'utf-8');
 
     await this.writeLog('compression', sessionId, {
@@ -98,13 +107,33 @@ export class MemoryBank {
   async getAllSessions(): Promise<string[]> {
     await this.ensureDirectories();
     try {
-      const files = await fs.readdir(MEMORY_DIR);
+      const files = await fs.readdir(this.memoryDir);
       return files
         .filter((f) => f.endsWith('.jsonl'))
         .map((f) => f.replace('.jsonl', ''));
     } catch {
       return [];
     }
+  }
+
+  /** Gathers the most recent memory across all sessions, newest last. */
+  async getGlobalRecentContext(maxEntries = 40): Promise<SwarmMessage[]> {
+    await this.ensureDirectories();
+    const sessions = await this.getAllSessions();
+    if (sessions.length === 0) return [];
+
+    let all: Array<{ timestamp: number; message: SwarmMessage }> = [];
+    for (const session of sessions) {
+      const entries = await this.getSessionMemory(session);
+      for (const entry of entries) {
+        for (const message of entry.messages) {
+          all.push({ timestamp: message.timestamp ?? entry.createdAt, message });
+        }
+      }
+    }
+
+    all.sort((a, b) => a.timestamp - b.timestamp);
+    return all.slice(-maxEntries).map((m) => m.message);
   }
 
   private async summarize(messages: SwarmMessage[]): Promise<string> {
@@ -114,9 +143,13 @@ export class MemoryBank {
     return `Compressed session summary: ${userMessages.length} user messages, ${assistantMessages.length} assistant responses. Topics: ${userMessages.slice(-5).join('; ')}`;
   }
 
-  private async writeLog(category: string, sessionId: string, data: Record<string, unknown>): Promise<void> {
+  private async writeLog(
+    category: string,
+    sessionId: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
     await this.ensureDirectories();
-    const logPath = path.join(LOGS_DIR, `${category}.jsonl`);
+    const logPath = path.join(this.logsDir, `${category}.jsonl`);
     await fs.appendFile(logPath, JSON.stringify({ sessionId, ...data }) + '\n', 'utf-8');
   }
 

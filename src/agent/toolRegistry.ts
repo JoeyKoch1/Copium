@@ -1,17 +1,21 @@
-import * as vscode from 'vscode';
-import { ToolDefinition, PermissionLevel } from '../providers';
-import { BaseTool, ToolContext, ToolResult } from './baseTool';
+import type { PermissionLevel, ToolDefinition } from '../providers/types';
+import type { BaseTool, ToolContext, ToolResult } from './baseTool';
 import {
   ReadFileTool,
   WriteFileTool,
   SearchFilesTool,
+  ListFilesTool,
+  GrepFilesTool,
+  ApplyEditTool,
+  WebFetchTool,
+  WebSearchTool,
   RunCommandTool,
-  GetDiagnosticsTool,
   GitStatusTool,
   GitDiffTool,
-  GetDocumentSymbolsTool,
+  GitCommitTool,
   SpawnSwarmTool,
 } from './tools';
+import type { SwarmToolContext } from './tools';
 
 export class ToolRegistry {
   private tools: Map<string, BaseTool> = new Map();
@@ -19,17 +23,25 @@ export class ToolRegistry {
   constructor() {
     this.register(new ReadFileTool());
     this.register(new WriteFileTool());
+    this.register(new ListFilesTool());
     this.register(new SearchFilesTool());
+    this.register(new GrepFilesTool());
+    this.register(new ApplyEditTool());
+    this.register(new WebFetchTool());
+    this.register(new WebSearchTool());
     this.register(new RunCommandTool());
-    this.register(new GetDiagnosticsTool());
     this.register(new GitStatusTool());
     this.register(new GitDiffTool());
-    this.register(new GetDocumentSymbolsTool());
+    this.register(new GitCommitTool());
     this.register(new SpawnSwarmTool());
   }
 
   register(tool: BaseTool): void {
     this.tools.set(tool.name, tool);
+  }
+
+  listTools(): string[] {
+    return Array.from(this.tools.keys());
   }
 
   getDefinitions(): ToolDefinition[] {
@@ -40,21 +52,16 @@ export class ToolRegistry {
     }));
   }
 
-  async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  execute(name: string, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
-      return { success: false, error: `Unknown tool: ${name}` };
+      return Promise.resolve({ success: false, error: `Unknown tool: ${name}` });
     }
-
-    const context: ToolContext = {
-      workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
-      permissionLevel: vscode.workspace.getConfiguration('copium').get<string>('permissionLevel', 'propose-edits') as PermissionLevel,
-      confirmAction: async (message: string) => {
-        const choice = await vscode.window.showWarningMessage(message, 'Allow', 'Deny');
-        return choice === 'Allow';
-      },
-    };
-
     return tool.run(context, args);
   }
 }
+
+export type { SwarmToolContext };
+export { BaseTool } from './baseTool';
+export type { ToolContext, ToolResult } from './baseTool';
+export type { PermissionLevel } from '../providers/types';

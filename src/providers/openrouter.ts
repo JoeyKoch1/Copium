@@ -1,4 +1,5 @@
-import { ModelProvider, ChatMessage, StreamCallbacks, ToolDefinition, ToolCall } from './index';
+import type { ChatMessage, ModelProvider, StreamCallbacks, ToolCall, ToolDefinition } from './types';
+import { streamChatCompletions } from './sse';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
@@ -8,34 +9,61 @@ export class OpenRouterProvider implements ModelProvider {
 
   constructor(
     private apiKey: string,
-    private preferredModel: string = 'openrouter/free',
+    private preferredModel: string = 'cohere/north-mini-code:free',
   ) {}
 
   async listModels(): Promise<string[]> {
     const url = `${OPENROUTER_BASE}/models`;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
-    if (!response.ok) {
-      throw new Error(`OpenRouter models fetch failed: ${response.status}`);
-    }
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: this.apiKey ? `Bearer ${this.apiKey}` : '',
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
 
-    const data = await response.json();
-    const models: string[] = [];
+      if (!response.ok) {
+        let detail = '';
+        try {
+          detail = (await response.text()).slice(0, 300);
+        } catch {
+          // ignore body read failure
+        }
+        const hint =
+          response.status === 401
+            ? 'Your OpenRouter API key is missing or invalid. Set OPENROUTER_API_KEY or add openrouter.apiKey to the config file.'
+            : response.status === 429
+              ? 'OpenRouter rate limit hit. Wait a moment and retry.'
+              : `HTTP ${response.status}`;
+        throw new Error(`Failed to list models from OpenRouter (${hint})${detail ? `: ${detail}` : ''}`);
+      }
 
-    if (Array.isArray(data?.data)) {
-      for (const m of data.data) {
-        if (typeof m?.id === 'string' && m.id.length > 0) {
-          models.push(m.id);
+      const data: any = await response.json();
+      const models: string[] = [];
+
+      if (Array.isArray(data?.data)) {
+        for (const m of data.data) {
+          if (typeof m?.id === 'string' && m.id.length > 0) {
+            models.push(m.id);
+          }
         }
       }
-    }
 
-    return models.sort();
+      // Filter out :batch/:json variants that aren't chat models, keep things tidy.
+      const chatModels = models.filter((id) => !id.includes(':batch'));
+      return sortModels(chatModels, this.preferredModel);
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Timed out listing models from OpenRouter.');
+      }
+      throw err;
+    }
   }
 
   async sendChat(
@@ -43,7 +71,6 @@ export class OpenRouterProvider implements ModelProvider {
     callbacks: StreamCallbacks,
     tools?: ToolDefinition[],
   ): Promise<ToolCall[] | null> {
-    const url = `${OPENROUTER_BASE}/chat/completions`;
     const body: Record<string, unknown> = {
       model: this.preferredModel,
       messages,
@@ -62,116 +89,31 @@ export class OpenRouterProvider implements ModelProvider {
       body.tool_choice = 'auto';
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://copium.dev',
-          'X-OpenRouter-Title': 'Copium',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`OpenRouter error ${response.status}: ${errText}`);
-      }
-
-      if (!response.body) {
-        throw new Error('OpenRouter response has no body');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const toolCalls: ToolCall[] = [];
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data:')) continue;
-          const data = trimmed.slice(5).trim();
-          if (data === '[DONE]') {
-            callbacks.onDone();
-            return toolCalls.length > 0 ? toolCalls : null;
-          }
-
-          try {
-            const parsed = JSON.parse(data);
-            const choice = parsed?.choices?.[0];
-            if (!choice) continue;
-
-            const delta = choice.delta;
-            if (delta?.content) {
-              callbacks.onToken(delta.content);
-            }
-
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls as Array<{
-                index?: number;
-                id?: string;
-                type?: string;
-                function?: { name?: string; arguments?: string };
-              }>) {
-                if (tc.type !== 'function') continue;
-                const idx = tc.index ?? 0;
-                if (!toolCalls[idx]) {
-                  toolCalls[idx] = { id: tc.id ?? `call_${Date.now()}_${idx}`, type: 'function', function: { name: '', arguments: '' } };
-                }
-                const entry = toolCalls[idx];
-                if (tc.id) entry.id = tc.id;
-                if (tc.function?.name) entry.function.name += tc.function.name;
-                if (tc.function?.arguments) entry.function.arguments += tc.function.arguments;
-              }
-            }
-
-            if (choice.finish_reason === 'tool_calls' && toolCalls.length > 0) {
-              return toolCalls;
-            }
-          } catch {
-            // skip unparseable SSE lines
-          }
-        }
-      }
-
-      if (buffer.trim().length > 0 && buffer.trim() !== '[DONE]') {
-        try {
-          const parsed = JSON.parse(buffer.trim());
-          const choice = parsed?.choices?.[0];
-          if (choice?.delta?.content) {
-            callbacks.onToken(choice.delta.content);
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      callbacks.onDone();
-      return toolCalls.length > 0 ? toolCalls : null;
-    } catch (err) {
-      clearTimeout(timeout);
-      if (err instanceof Error && err.name === 'AbortError') {
-        callbacks.onError(new Error('OpenRouter request timed out'));
-        return null;
-      }
-      callbacks.onError(err instanceof Error ? err : new Error(String(err)));
-      return null;
-    }
+    return streamChatCompletions(
+      `${OPENROUTER_BASE}/chat/completions`,
+      body,
+      {
+        Authorization: `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'https://copium.dev',
+        'X-OpenRouter-Title': 'Copium',
+      },
+      callbacks,
+    );
   }
+}
+
+/**
+ * Sort models so the preferred model is first, then free models, then the
+ * rest alphabetically. Keeps the picker useful instead of dumping 400 random
+ * entries.
+ */
+function sortModels(models: string[], preferredModel: string): string[] {
+  const preferred = preferredModel && models.includes(preferredModel) ? [preferredModel] : [];
+  const free = models
+    .filter((m) => m !== preferredModel && (m.endsWith(':free') || m.endsWith('free')))
+    .sort();
+  const rest = models
+    .filter((m) => m !== preferredModel && !(m.endsWith(':free') || m.endsWith('free')))
+    .sort();
+  return [...preferred, ...free, ...rest];
 }

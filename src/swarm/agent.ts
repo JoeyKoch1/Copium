@@ -1,8 +1,11 @@
-import * as vscode from 'vscode';
-import { ModelProvider, ChatMessage, StreamCallbacks } from '../providers';
+import { ModelProvider, ChatMessage, StreamCallbacks } from '../providers/types';
 import { SwarmAgentRole, SwarmTask, SwarmMessage } from './types';
 import { MemoryBank } from './memoryBank';
 import { ContextStore } from './contextStore';
+
+export interface AgentLogger {
+  log: (message: string) => void;
+}
 
 export class SwarmAgent {
   readonly id: string;
@@ -14,6 +17,7 @@ export class SwarmAgent {
     provider: ModelProvider,
     private memoryBank: MemoryBank,
     private contextStore: ContextStore,
+    private logger?: AgentLogger,
   ) {
     this.id = role.id;
     this.role = role;
@@ -54,7 +58,7 @@ export class SwarmAgent {
         },
         onDone: () => {},
         onError: (error) => {
-          vscode.window.showErrorMessage(`Agent ${this.id} error: ${error.message}`);
+          this.logger?.log(`Agent ${this.id} error: ${error.message}`);
         },
       };
 

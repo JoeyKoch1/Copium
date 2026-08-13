@@ -1,5 +1,6 @@
 node_modules/
+*.log
+.copium/
+.swarm/
+.kilo/
 dist/
-*.vsix
-.vscode-test/
-.DS_Store

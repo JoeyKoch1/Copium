@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { BYOKProvider } from '../../src/providers/byok';
 
 function createMockResponse(init: {
@@ -48,17 +48,12 @@ describe('BYOKProvider', () => {
       },
     });
 
-    global.fetch = vi.fn().mockResolvedValue(
-      createMockResponse({
-        ok: true,
-        body: stream,
-      }),
-    );
+    globalThis.fetch = mock(() => createMockResponse({ ok: true, body: stream })) as unknown as typeof fetch;
 
     const callbacks = {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
+      onToken: mock(() => {}),
+      onDone: mock(() => {}),
+      onError: mock(() => {}),
     };
 
     const result = await provider.sendChat([{ role: 'user', content: 'hi' }], callbacks);
@@ -69,25 +64,27 @@ describe('BYOKProvider', () => {
   });
 
   it('calls onError on 401 unauthorized', async () => {
-    global.fetch = vi.fn().mockResolvedValue(
+    globalThis.fetch = mock(() =>
       createMockResponse({
         ok: false,
         status: 401,
         text: () => Promise.resolve('Unauthorized'),
       }),
-    );
+    ) as unknown as typeof fetch;
 
     const callbacks = {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
+      onToken: mock(() => {}),
+      onDone: mock(() => {}),
+      onError: mock(() => {}),
     };
 
     const result = await provider.sendChat([{ role: 'user', content: 'hi' }], callbacks);
     expect(callbacks.onError).toHaveBeenCalledTimes(1);
-    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('401'),
-    }));
+    expect(callbacks.onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('401'),
+      }),
+    );
     expect(callbacks.onDone).not.toHaveBeenCalled();
     expect(result).toBeNull();
   });

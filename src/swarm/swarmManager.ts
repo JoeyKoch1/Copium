@@ -1,9 +1,8 @@
-import * as vscode from 'vscode';
-import { ModelProvider } from '../providers';
-import { SwarmAgent } from './agent';
+import { ModelProvider } from '../providers/types';
+import { SwarmAgent, AgentLogger } from './agent';
 import { MemoryBank } from './memoryBank';
 import { ContextStore } from './contextStore';
-import { SwarmAgentRole, SwarmTask } from './types';
+import { SwarmAgentRole, SwarmTask, SwarmMessage } from './types';
 
 export class SwarmManager {
   private agents = new Map<string, SwarmAgent>();
@@ -11,13 +10,23 @@ export class SwarmManager {
   private memoryBank: MemoryBank;
   private contextStore: ContextStore;
 
-  constructor(private provider: ModelProvider) {
-    this.memoryBank = new MemoryBank();
+  constructor(
+    private provider: ModelProvider,
+    baseDir: string,
+    private logger?: AgentLogger,
+  ) {
+    this.memoryBank = new MemoryBank(baseDir);
     this.contextStore = new ContextStore();
   }
 
   async registerAgent(role: SwarmAgentRole): Promise<void> {
-    const agent = new SwarmAgent(role, this.provider, this.memoryBank, this.contextStore);
+    const agent = new SwarmAgent(
+      role,
+      this.provider,
+      this.memoryBank,
+      this.contextStore,
+      this.logger,
+    );
     this.agents.set(role.id, agent);
   }
 
@@ -30,7 +39,7 @@ export class SwarmManager {
     for (const role of task.roles) {
       const agent = this.agents.get(role.id);
       if (!agent) {
-        vscode.window.showWarningMessage(`Swarm agent ${role.id} not registered`);
+        this.logger?.log(`Swarm agent ${role.id} not registered`);
         continue;
       }
 

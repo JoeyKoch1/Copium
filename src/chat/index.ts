@@ -1,1 +1,0 @@
-export { registerChatParticipant } from './participant';

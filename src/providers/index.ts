@@ -1,38 +1,27 @@
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+import type { CopiumConfig } from '../config';
+import type { ModelProvider } from './types';
+import { OllamaProvider } from './ollama';
+import { OpenRouterProvider } from './openrouter';
+import { BYOKProvider } from './byok';
+
+export function createProvider(config: CopiumConfig): ModelProvider | null {
+  switch (config.provider) {
+    case 'ollama':
+      return new OllamaProvider(config.ollama.endpoint, config.ollama.model);
+    case 'openrouter':
+      // OpenRouter allows browsing models without a key; chat fails with a
+      // clear 401 only if a key is actually missing.
+      return new OpenRouterProvider(config.openrouter.apiKey, config.openrouter.model);
+    case 'byok': {
+      const apiKey = config.byok.apiKey;
+      if (!apiKey) {
+        return null;
+      }
+      return new BYOKProvider(config.byok.endpoint, apiKey, config.byok.model);
+    }
+    default:
+      return null;
+  }
 }
 
-export interface StreamCallbacks {
-  onToken: (token: string) => void;
-  onDone: () => void;
-  onError: (error: Error) => void;
-}
-
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
-
-export interface ModelProvider {
-  readonly id: string;
-  readonly name: string;
-  listModels(): Promise<string[]>;
-  sendChat(messages: ChatMessage[], callbacks: StreamCallbacks, tools?: ToolDefinition[]): Promise<ToolCall[] | null>;
-}
-
-export type PermissionLevel = 'read-only' | 'propose-edits' | 'auto-execute';
+export type { ChatMessage, ModelProvider, StreamCallbacks, ToolCall, ToolDefinition } from './types';

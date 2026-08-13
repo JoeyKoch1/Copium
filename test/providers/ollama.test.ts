@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { OllamaProvider } from '../../src/providers/ollama';
 
 function createMockResponse(init: {
@@ -20,47 +20,32 @@ describe('OllamaProvider', () => {
   let provider: OllamaProvider;
 
   beforeEach(() => {
-    provider = new OllamaProvider('http://localhost:11434');
+    provider = new OllamaProvider('http://localhost:11434', 'llama3.2:3b');
   });
 
   it('returns models from /api/tags', async () => {
-    global.fetch = vi.fn().mockResolvedValue(
+    globalThis.fetch = mock(() =>
       createMockResponse({
         json: () =>
           Promise.resolve({
-            models: [
-              { name: 'llama3.2:3b' },
-              { name: 'codellama:7b' },
-            ],
+            models: [{ name: 'llama3.2:3b' }, { name: 'codellama:7b' }],
           }),
       }),
-    );
+    ) as unknown as typeof fetch;
 
     const models = await provider.listModels();
     expect(models).toEqual(['llama3.2:3b', 'codellama:7b']);
   });
 
-  it('falls back to nested models array shape', async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      createMockResponse({
-        json: () =>
-          Promise.resolve({
-            models: [{ name: 'phi3:mini' }],
-          }),
-      }),
-    );
-
-    const models = await provider.listModels();
-    expect(models).toEqual(['phi3:mini']);
-  });
-
   it('calls onError on connection failure', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    globalThis.fetch = mock(() => {
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
 
     const callbacks = {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
+      onToken: mock(() => {}),
+      onDone: mock(() => {}),
+      onError: mock(() => {}),
     };
 
     await provider.sendChat([{ role: 'user', content: 'hi' }], callbacks);
@@ -85,7 +70,7 @@ describe('OllamaProvider', () => {
       },
     });
 
-    global.fetch = vi.fn().mockImplementation((url: string) => {
+    globalThis.fetch = mock((url: string) => {
       if (url.includes('/api/tags')) {
         return Promise.resolve(
           createMockResponse({
@@ -102,15 +87,15 @@ describe('OllamaProvider', () => {
         );
       }
       return Promise.reject(new Error('Unknown URL'));
-    });
+    }) as unknown as typeof fetch;
 
     const callbacks = {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
+      onToken: mock(() => {}),
+      onDone: mock(() => {}),
+      onError: mock(() => {}),
     };
 
-    await provider.sendChat([{ role: 'user', content: 'hi' }], callbacks, 'llama3.2:3b');
+    await provider.sendChat([{ role: 'user', content: 'hi' }], callbacks);
     expect(callbacks.onToken).toHaveBeenNthCalledWith(1, 'Hello');
     expect(callbacks.onToken).toHaveBeenNthCalledWith(2, ' world');
     expect(callbacks.onToken).toHaveBeenNthCalledWith(3, '!');

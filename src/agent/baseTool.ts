@@ -1,4 +1,6 @@
-import { ToolDefinition, PermissionLevel } from '../providers';
+import type { PermissionLevel, ToolDefinition } from '../providers/types';
+import type { ModelProvider } from '../providers/types';
+import type { CopiumConfig } from '../config';
 
 export interface ToolResult {
   success: boolean;
@@ -10,6 +12,8 @@ export interface ToolContext {
   workspaceRoot: string;
   permissionLevel: PermissionLevel;
   confirmAction: (message: string) => Promise<boolean>;
+  provider?: ModelProvider | null;
+  config?: CopiumConfig;
 }
 
 export abstract class BaseTool {

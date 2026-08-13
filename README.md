@@ -2,94 +2,151 @@
 
 ![banner](Assets/logo.webp)
 
-100% free, no-account, no-subscription coding agent for VS Code.
+100% free, no-account, no-subscription coding agent for the terminal.
 
 ## Why Copium
 
-Why cope with expensive AI coding tools when Copium is free. Copium is a Visual Studio Code extension that gives you a fully functional coding agent without gating features behind payment, waitlists, or required accounts.
+Why cope with expensive AI coding tools when Copium is free. Copium is a terminal-based coding agent (TUI) that gives you a fully functional coding agent without gating features behind payment, waitlists, or required accounts.
 
 ## Features
 
-- **Multi-provider support** - OpenRouter, BYOK OpenAI-compatible endpoints, Ollama local models, and VS Code LM
+- **Multi-provider support** - OpenRouter, BYOK OpenAI-compatible endpoints, and Ollama local models
 - **Free by default** - Defaults to OpenRouter free auto-routed models. No credit card required
 - **Swarm agents** - Spawn multiple background agents in parallel with shared memory
-- **Agent tools** - Read/write files, run commands, search code, get diagnostics, check git status
+- **Agent tools** - Read/write files, run commands, search code, check git status/diff
 - **Persistent memory** - Every request and response is logged in compressed JSON so the agent always has context
 - **Permission tiers** - Choose read-only, propose-edits, or auto-execute modes
 - **Streaming responses** - Real-time token streaming from models
+
+## Requirements
+
+- [Bun](https://bun.sh) >= 1.1
+
+## Quick Start
+
+```bash
+bun install
+bun start
+```
+
+This starts the interactive chat UI. Type a prompt and press Enter to send (Shift+Enter for a newline).
+
+| Key | Action |
+|-----|--------|
+| Enter | Send message |
+| Shift+Enter | Newline |
+| ? | Show help overlay |
+| Ctrl+L | Clear the transcript |
+
+### Slash commands
+
+Type these in the input box:
+
+| Command | Action |
+|---------|--------|
+| `/model` | Pick a model from the provider (interactive picker) |
+| `/permission` | Switch permission level: read-only / propose-edits / auto-execute |
+| `/permission <lvl>` | Set permission level directly |
+| `/swarm <task>` | Run a swarm of agents on a task |
+| `/tools` | List the tools the agent can use |
+| `/config` | Show current provider/model/permission/swarm config |
+| `/clear` | Clear the transcript |
+| `/help` | Show help overlay |
+| `/version` | Print version |
+
+In one-shot mode you can pass `/model <id>` as the prompt to just switch the model:
+
+```bash
+bun run src/index.ts "/model meta-llama/llama-3.3-70b"
+```
+
+### One-shot mode
+
+Pass a prompt as an argument to run non-interactively (no confirmations; denied unless `--permission auto-execute`):
+
+```bash
+bun run src/index.ts "explain the diff in my last commit"
+```
+
+### Swarm Mode
+
+Enable swarm mode with `--swarm`, then use `/swarm` in chat to spawn multiple background agents:
+
+```bash
+bun run src/index.ts --swarm
+# then:  /swarm implement user authentication with JWT tokens
+```
+
+Swarm agents share memory and context through compressed JSON logs stored in `.swarm/` next to your workspace.
 
 ## Supported Providers
 
 | Provider | Default Model | Notes |
 |----------|--------------|-------|
-| OpenRouter | openrouter/free | Free auto-router, no API key needed for free models |
+| OpenRouter | cohere/north-mini-code:free | Free model, no API key needed |
 | BYOK | deepseek-chat | Bring your own OpenAI-compatible endpoint |
 | Ollama | (first available) | Local models, fully offline |
-| VS Code LM | (system default) | Coming in v0.3 |
-
-## Quick Start
-
-1. Install the extension
-2. Open Settings (Ctrl+,) and search for "Copium"
-3. Set your provider and model
-4. Click the Copium icon in the left sidebar to open the chat UI
-5. Or open the Chat view (Ctrl+Shift+I) and type `@copium hello` to start chatting
-
-### Swarm Mode
-
-Enable swarm mode in settings, then use `/swarm` in chat to spawn multiple background agents:
-
-```
-@copium /swarm implement user authentication with JWT tokens
-```
-
-Swarm agents share memory and context through compressed JSON logs stored in `.swarm/`.
-
-## Memory System
-
-Every interaction is logged to `.swarm/memory/` as compressed JSON. The agent reads this memory on every request to maintain full context across sessions. Memory is automatically compressed when it grows too large.
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| copium.provider | openrouter | Model provider |
-| copium.openrouter.apiKey | (empty) | OpenRouter API key |
-| copium.openrouter.model | openrouter/free | Model ID |
-| copium.byok.endpoint | https://api.deepseek.com/v1 | BYOK endpoint |
-| copium.byok.apiKey | (empty) | BYOK API key |
-| copium.byok.model | deepseek-chat | BYOK model name |
-| copium.ollama.endpoint | http://localhost:11434 | Ollama endpoint |
-| copium.ollama.model | (empty) | Ollama model name |
-| copium.permissionLevel | propose-edits | Permission tier |
-| copium.swarm.enabled | false | Enable swarm mode |
-| copium.swarm.maxAgents | 3 | Max parallel swarm agents |
-| copium.telemetry.enabled | false | Opt-in telemetry |
+Configuration lives in `~/.config/copium/config.json` (override the path with `--config` or the `COPIUM_CONFIG_FILE` environment variable).
 
-## Commands
+```json
+{
+  "provider": "openrouter",
+  "openrouter": { "apiKey": "", "model": "cohere/north-mini-code:free" },
+  "byok": { "endpoint": "https://api.deepseek.com/v1", "apiKey": "", "model": "deepseek-chat" },
+  "ollama": { "endpoint": "http://localhost:11434", "model": "" },
+  "permissionLevel": "propose-edits",
+  "swarm": { "enabled": false, "maxAgents": 3 }
+}
+```
 
-- `Copium: Start Agent Task` - Start a Copium agent task
-- `Copium: Explain Selection` - Explain the current selection
-- `Copium: Fix Diagnostic` - Fix the current diagnostic
-- `Copium: Apply Edit` - Apply an edit to the current file
+### Environment variables
 
-## Chat Commands
+| Variable | Description |
+|----------|-------------|
+| `OPENROUTER_API_KEY` / `COPIUM_OPENROUTER_API_KEY` | OpenRouter API key |
+| `COPIUM_OPENROUTER_MODEL` | OpenRouter model ID |
+| `COPIUM_BYOK_ENDPOINT` / `COPIUM_BYOK_API_KEY` / `COPIUM_BYOK_MODEL` | BYOK endpoint, key, model |
+| `COPIUM_OLLAMA_ENDPOINT` / `COPIUM_OLLAMA_MODEL` | Ollama endpoint, model |
+| `COPIUM_PROVIDER` | `ollama` \| `openrouter` \| `byok` |
+| `COPIUM_PERMISSION_LEVEL` | `read-only` \| `propose-edits` \| `auto-execute` |
+| `COPIUM_SWARM_ENABLED` | Enable swarm mode |
+| `COPIUM_SWARM_MAX_AGENTS` | Max parallel swarm agents |
 
-- `@copium <prompt>` - Chat with Copium
-- `@copium /swarm <prompt>` - Spawn swarm agents for the task
+### CLI options
+
+```
+copium                        Start the interactive chat UI
+copium "<prompt>"             Run a one-shot prompt (non-interactive)
+copium /swarm "<task>"        Run a swarm of agents on a task
+
+--provider <p>       ollama | openrouter | byok
+--model <m>          Model name (provider-specific)
+--permission <lvl>   read-only | propose-edits | auto-execute
+--swarm              Enable swarm mode
+--max-agents <n>     Max swarm agents (default 3)
+--config <path>      Path to config file
+--list-models        List available models for the configured provider
+--version, -v        Print version
+--help, -h           Show this help
+```
+
+## Memory System
+
+Every interaction is logged to `.swarm/memory/` in your workspace as compressed JSON. The agent reads this memory on every request to maintain full context across sessions.
 
 ## Development
 
 ```bash
-pnpm install
-npm run compile
-npm test
+bun install
+bunx tsc --noEmit   # typecheck
+bun test            # tests
+bun start           # run the TUI
 ```
 
 ## License
 
 MIT
 
-## Disclaimer
-
-This project was developed with assistance from Kilo Code for bug finding, code review, and implementation support. Kilo Code helped identify issues, suggest fixes, and implement features throughout the development process.
