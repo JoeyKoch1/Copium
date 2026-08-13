@@ -98,15 +98,17 @@ export class ChatEngine {
 
       if (this.hasErrored) break;
 
-      if (assistantContent.length > 0) {
-        this.messages.push({ role: 'assistant', content: assistantContent });
-      }
-
       if (!toolCalls || toolCalls.length === 0) {
+        if (assistantContent.length > 0) {
+          this.messages.push({ role: 'assistant', content: assistantContent });
+        }
         break;
       }
 
-      this.messages.push({ role: 'assistant', content: assistantContent });
+      // Record the assistant's tool-call request once, with the tool_calls
+      // it made attached, so the follow-up 'tool' role messages have a
+      // valid preceding message to respond to.
+      this.messages.push({ role: 'assistant', content: assistantContent, tool_calls: toolCalls });
 
       for (const tc of toolCalls) {
         this.callbacks.onToolCall(tc.function.name, safeParse(tc.function.arguments));

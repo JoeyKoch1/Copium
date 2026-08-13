@@ -3,6 +3,8 @@ export interface ChatMessage {
   content: string;
   tool_call_id?: string;
   name?: string;
+  /** Present on an assistant message that requested one or more tool calls. */
+  tool_calls?: ToolCall[];
 }
 
 export interface StreamCallbacks {

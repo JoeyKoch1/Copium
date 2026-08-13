@@ -19,6 +19,11 @@ export class SwarmManager {
     this.contextStore = new ContextStore();
   }
 
+  /** Roles for every agent registered so far, in registration order. */
+  getRegisteredRoles(): SwarmAgentRole[] {
+    return Array.from(this.agents.values()).map((agent) => agent.role);
+  }
+
   async registerAgent(role: SwarmAgentRole): Promise<void> {
     const agent = new SwarmAgent(
       role,

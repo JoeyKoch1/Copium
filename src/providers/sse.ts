@@ -127,7 +127,10 @@ function parseSseLine(
       type?: string;
       function?: { name?: string; arguments?: string };
     }>) {
-      if (tc.type !== 'function') continue;
+      // Only the first chunk of a streamed tool call includes `type`/`id`;
+      // continuation chunks that carry the rest of the arguments omit them.
+      // Only reject a chunk that *explicitly* declares a non-function type.
+      if (tc.type && tc.type !== 'function') continue;
       const idx = tc.index ?? 0;
       if (!toolCalls[idx]) {
         toolCalls[idx] = {

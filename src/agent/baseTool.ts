@@ -45,6 +45,11 @@ export abstract class BaseTool {
   }
 
   private isWriteOperation(_args: Record<string, unknown>): boolean {
-    return this.name === 'writeFile' || this.name === 'runCommand' || this.name === 'gitCommit';
+    return (
+      this.name === 'writeFile' ||
+      this.name === 'applyEdit' ||
+      this.name === 'runCommand' ||
+      this.name === 'gitCommit'
+    );
   }
 }

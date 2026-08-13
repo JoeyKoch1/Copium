@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import {
@@ -59,8 +59,18 @@ export async function loadConfig(): Promise<CopiumConfig> {
 }
 
 export async function saveConfig(config: CopiumConfig): Promise<void> {
-  await mkdir(configDir(), { recursive: true });
-  await writeFile(configFile(), JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  await mkdir(configDir(), { recursive: true, mode: 0o700 });
+  await writeFile(configFile(), JSON.stringify(config, null, 2) + '\n', {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+  // Belt-and-braces: writeFile's `mode` option only applies when creating a
+  // new file, so explicitly chmod in case the file already existed with
+  // looser permissions from an older Copium version.
+  await chmod(configFile(), 0o600).catch(() => {
+    // Non-POSIX filesystems (e.g. some Windows setups) may not support this;
+    // config still works, it's just not permission-locked.
+  });
 }
 
 export function describeProvider(config: CopiumConfig): string {

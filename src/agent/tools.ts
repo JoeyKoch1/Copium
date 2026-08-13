@@ -1,14 +1,15 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { BaseTool } from './baseTool';
 import type { ToolContext, ToolResult } from './baseTool';
 import { SwarmManager } from '../swarm';
+import { DEFAULT_SWARM_ROLES } from '../swarm/roles';
 import type { ToolDefinition } from '../providers/types';
-import type { SwarmAgentRole } from '../swarm/types';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface SwarmToolContext extends ToolContext {}
 
@@ -372,12 +373,23 @@ export class GitCommitTool extends BaseTool {
       return { success: false, error: 'Commit message is required.' };
     }
     try {
-      const { stdout, stderr } = await execAsync(`git add -A && git commit -m "${message.replace(/"/g, '\\"')}"`, {
+      // Use execFile with an argv array (not a shell string) so the commit
+      // message can never be interpreted as shell syntax, even if it
+      // contains characters like `$()`, backticks, or `;`.
+      const add = await execFileAsync('git', ['add', '-A'], {
         cwd: context.workspaceRoot,
         timeout: 30000,
         windowsHide: true,
       });
-      return { success: true, data: { output: stdout + (stderr ? `\n${stderr}` : '') } };
+      const commit = await execFileAsync('git', ['commit', '-m', message], {
+        cwd: context.workspaceRoot,
+        timeout: 30000,
+        windowsHide: true,
+      });
+      const output = [add.stdout, add.stderr, commit.stdout, commit.stderr]
+        .filter(Boolean)
+        .join('\n');
+      return { success: true, data: { output } };
     } catch (err) {
       const e = err as { stdout?: string; stderr?: string; code?: number };
       const output = (e.stdout ?? '') + (e.stderr ? `\n${e.stderr}` : '');
@@ -572,35 +584,11 @@ export class SpawnSwarmTool extends BaseTool {
 
       const swarm = new SwarmManager(provider, context.workspaceRoot);
 
-      const allRoles: SwarmAgentRole[] = [
-        {
-          id: 'explorer',
-          name: 'Explorer',
-          description: 'Scans codebase and gathers context',
-          systemPrompt:
-            'You are an explorer agent. Your job is to scan the codebase, find relevant files, and gather context. Be thorough and report file paths and key findings.',
-        },
-        {
-          id: 'coder',
-          name: 'Coder',
-          description: 'Implements changes',
-          systemPrompt:
-            'You are a coder agent. Your job is to implement changes based on the gathered context. Write clean, working code.',
-        },
-        {
-          id: 'reviewer',
-          name: 'Reviewer',
-          description: 'Reviews changes for correctness',
-          systemPrompt:
-            'You are a reviewer agent. Your job is to review code changes for correctness, security, and best practices. Report issues clearly.',
-        },
-      ];
-
-      for (const role of allRoles) {
+      for (const role of DEFAULT_SWARM_ROLES) {
         await swarm.registerAgent(role);
       }
 
-      const roles = allRoles.slice(0, Math.min(maxAgents, 3));
+      const roles = DEFAULT_SWARM_ROLES.slice(0, Math.min(maxAgents, DEFAULT_SWARM_ROLES.length));
 
       const results = await swarm.spawnTask({
         id: 'swarm_' + Date.now(),

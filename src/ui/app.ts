@@ -12,7 +12,7 @@ import {
   type KeyEvent,
   type KeyBinding,
 } from '@opentui/core';
-import { CopiumConfig, describeProvider } from '../config';
+import { CopiumConfig, describeProvider, saveConfig } from '../config';
 import { ChatEngine } from '../engine';
 import { ToolRegistry } from '../agent';
 import { createProvider, ModelProvider } from '../providers';
@@ -700,12 +700,23 @@ export class CopiumApp {
 
     if (typeof choice === 'string' && choice) {
       const config = this.engine.getConfig();
-      config.openrouter.model = choice;
+      switch (config.provider) {
+        case 'openrouter':
+          config.openrouter.model = choice;
+          break;
+        case 'byok':
+          config.byok.model = choice;
+          break;
+        case 'ollama':
+          config.ollama.model = choice;
+          break;
+      }
       const rebuilt = createProvider(config);
       if (rebuilt) {
         this.engine.setProvider(rebuilt);
         this.provider = rebuilt;
       }
+      await this.persistConfig();
       this.setStatus(`model: ${choice}`);
       this.titleText.content = describeProvider(config);
       this.pushMessage({ role: 'tool', content: `_Model switched to \`${choice}\`_` });
@@ -742,6 +753,7 @@ export class CopiumApp {
 
     if (wanted) {
       this.config.permissionLevel = wanted;
+      await this.persistConfig();
       this.setStatus(`permission: ${wanted}`);
       this.pushMessage({ role: 'tool', content: `_Permission level set to \`${wanted}\`_` });
       return;
@@ -758,8 +770,19 @@ export class CopiumApp {
 
     if (typeof choice === 'string' && choice) {
       this.config.permissionLevel = choice as CopiumConfig['permissionLevel'];
+      await this.persistConfig();
       this.setStatus(`permission: ${choice}`);
       this.pushMessage({ role: 'tool', content: `_Permission level set to \`${choice}\`_` });
+    }
+  }
+
+  /** Best-effort save of runtime config changes (/model, /permission) to disk. */
+  private async persistConfig(): Promise<void> {
+    try {
+      await saveConfig(this.config);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.pushMessage({ role: 'tool', content: `_Warning: failed to save config: ${msg}_` });
     }
   }
 

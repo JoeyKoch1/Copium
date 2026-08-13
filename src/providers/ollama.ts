@@ -2,6 +2,15 @@ import type { ChatMessage, ModelProvider, StreamCallbacks, ToolCall, ToolDefinit
 
 const DEFAULT_ENDPOINT = 'http://localhost:11434';
 
+/** Ollama expects tool call arguments as an object, not a JSON string. */
+function safeJsonParse(json: string): unknown {
+  try {
+    return JSON.parse(json || '{}');
+  } catch {
+    return {};
+  }
+}
+
 export class OllamaProvider implements ModelProvider {
   readonly id = 'ollama';
   readonly name = 'Ollama (Local)';
@@ -70,7 +79,24 @@ export class OllamaProvider implements ModelProvider {
 
       const body: Record<string, unknown> = {
         model,
-        messages: messages.map(({ role, content }) => ({ role, content })),
+        messages: messages.map(({ role, content, tool_call_id, name, tool_calls }) => ({
+          role,
+          content,
+          ...(tool_call_id ? { tool_call_id } : {}),
+          ...(name ? { name } : {}),
+          ...(tool_calls
+            ? {
+                tool_calls: tool_calls.map((tc) => ({
+                  id: tc.id,
+                  type: tc.type,
+                  function: {
+                    name: tc.function.name,
+                    arguments: safeJsonParse(tc.function.arguments),
+                  },
+                })),
+              }
+            : {}),
+        })),
         stream: true,
       };
 

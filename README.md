@@ -12,7 +12,7 @@ Why cope with expensive AI coding tools when Copium is free. Copium is a termina
 
 - **Multi-provider support** - OpenRouter, BYOK OpenAI-compatible endpoints, and Ollama local models
 - **Free by default** - Defaults to OpenRouter free auto-routed models. No credit card required
-- **Swarm agents** - Spawn multiple background agents in parallel with shared memory
+- **Swarm agents** - Run a coordinated explorer → coder → reviewer pipeline with shared memory
 - **Agent tools** - Read/write files, run commands, search code, check git status/diff
 - **Persistent memory** - Every request and response is logged in compressed JSON so the agent always has context
 - **Permission tiers** - Choose read-only, propose-edits, or auto-execute modes
@@ -70,14 +70,14 @@ bun run src/index.ts "explain the diff in my last commit"
 
 ### Swarm Mode
 
-Enable swarm mode with `--swarm`, then use `/swarm` in chat to spawn multiple background agents:
+Enable swarm mode with `--swarm`, then use `/swarm` in chat to run a task through a pipeline of agents:
 
 ```bash
 bun run src/index.ts --swarm
 # then:  /swarm implement user authentication with JWT tokens
 ```
 
-Swarm agents share memory and context through compressed JSON logs stored in `.swarm/` next to your workspace.
+By default, three agents run **in sequence**, each handing its output to the next: an Explorer scans the codebase and gathers context, a Coder implements the change, and a Reviewer checks it for correctness. They run one after another (not concurrently) so each stage can build on the last, and they share context and memory through compressed JSON logs stored in `.swarm/` next to your workspace.
 
 ## Supported Providers
 
@@ -113,7 +113,7 @@ Configuration lives in `~/.config/copium/config.json` (override the path with `-
 | `COPIUM_PROVIDER` | `ollama` \| `openrouter` \| `byok` |
 | `COPIUM_PERMISSION_LEVEL` | `read-only` \| `propose-edits` \| `auto-execute` |
 | `COPIUM_SWARM_ENABLED` | Enable swarm mode |
-| `COPIUM_SWARM_MAX_AGENTS` | Max parallel swarm agents |
+| `COPIUM_SWARM_MAX_AGENTS` | Max agents in the swarm pipeline |
 
 ### CLI options
 
