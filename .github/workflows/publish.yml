@@ -31,7 +31,10 @@ jobs:
 
       - name: Test
         run: bun test
-
+      - name: Configure npm authentication
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          chmod 600 ~/.npmrc
       - name: Publish
         run: npm publish
         env:
