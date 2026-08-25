@@ -66,6 +66,7 @@ const SLASH_COMMANDS: Array<{ cmd: string; desc: string }> = [
   { cmd: '/bypassperms', desc: 'toggle never-ask mode (/yolo)' },
   { cmd: '/tools', desc: 'list available tools' },
   { cmd: '/config', desc: 'show current config' },
+  { cmd: '/aiauth', desc: 'set provider + API key (saved permanently)' },
   { cmd: '/stats', desc: 'session stats (tokens, tools, edits)' },
   { cmd: '/sessions', desc: 'resume a previous session' },
   { cmd: '/export', desc: 'export session as shareable folder' },
@@ -420,6 +421,7 @@ export class CopiumApp {
         '/swarm <t>   : run swarm agents on a task\n' +
         '/tools       : list available tools\n' +
         '/config      : show current config\n' +
+        '/aiauth      : set provider + API key (saved permanently)\n' +
         '/stats       : session stats (tokens, tools, edits)\n' +
         '/sessions    : resume a previous session\n' +
         '/clear       : clear conversation\n' +
@@ -722,6 +724,55 @@ export class CopiumApp {
             `- api key: \`${maskKey(this.activeApiKey())}\`\n`,
         });
         break;
+      case '/aiauth': {
+        // Pick provider, paste key, saved to config permanently.
+        const providerChoice = await this.promptSelect(
+          'AI Provider',
+          [
+            { name: 'openrouter', description: 'OpenRouter (free models available)', value: 'openrouter' },
+            { name: 'byok', description: 'Any OpenAI-compatible endpoint', value: 'byok' },
+            { name: 'ollama', description: 'Local models (no key needed)', value: 'ollama' },
+          ],
+        );
+        if (typeof providerChoice !== 'string') break;
+
+        let endpoint: string | undefined;
+        if (providerChoice === 'byok') {
+          endpoint = await this.promptText('BYOK Endpoint', 'https://api.deepseek.com/v1');
+          if (!endpoint) break;
+        }
+
+        let apiKey: string | undefined;
+        if (providerChoice !== 'ollama') {
+          apiKey = await this.promptText(`Paste your ${providerChoice} API key`, '', true);
+          if (!apiKey) {
+            this.pushMessage({ role: 'tool', content: '_Auth cancelled._' });
+            break;
+          }
+        }
+
+        // Apply to config and hot-swap the provider.
+        this.config.provider = providerChoice as CopiumConfig['provider'];
+        if (providerChoice === 'openrouter') {
+          this.config.openrouter.apiKey = apiKey!;
+        } else if (providerChoice === 'byok') {
+          this.config.byok.apiKey = apiKey ?? '';
+          this.config.byok.endpoint = endpoint || this.config.byok.endpoint;
+        }
+        const rebuilt = createProvider(this.config);
+        if (rebuilt) {
+          this.engine.setProvider(rebuilt);
+          this.provider = rebuilt;
+        }
+        await this.persistConfig();
+        this.titleText.content = describeProvider(this.config);
+        this.setStatus(`authenticated · ${describeProvider(this.config)}`);
+        this.pushMessage({
+          role: 'tool',
+          content: `**Authenticated** with \`${providerChoice}\`${apiKey ? ` (${maskKey(apiKey)})` : ''}. Saved to config — you won't need to do this again.`,
+        });
+        break;
+      }
       case '/swarm':
         if (!arg) {
           this.pushMessage({ role: 'tool', content: '_Usage: /swarm <task>_ e.g. /swarm implement auth with JWT' });
@@ -865,14 +916,29 @@ export class CopiumApp {
     const last = [...this.messages].reverse().find((m) => m.role === 'assistant');
     if (!last) return;
     try {
-      await Bun.write('/dev/clipboard', last.content).catch(async () => {
-        // Windows fallback via PowerShell.
-        const proc = Bun.spawn(['powershell', '-NoProfile', '-Command', 'Set-Clipboard', '-Value', 'stdin'], {
+      if (process.platform === 'win32') {
+        const proc = Bun.spawn(
+          ['powershell', '-NoProfile', '-Command', '$input | Set-Clipboard'],
+          { stdin: 'pipe', stdout: 'ignore', stderr: 'ignore' },
+        );
+        proc.stdin?.write(last.content);
+        proc.stdin?.end();
+        await proc.exited;
+      } else if (process.platform === 'darwin') {
+        const proc = Bun.spawn(['pbcopy'], { stdin: 'pipe', stdout: 'ignore', stderr: 'ignore' });
+        proc.stdin?.write(last.content);
+        proc.stdin?.end();
+        await proc.exited;
+      } else {
+        const proc = Bun.spawn(['xclip', '-selection', 'clipboard'], {
           stdin: 'pipe',
+          stdout: 'ignore',
+          stderr: 'ignore',
         });
         proc.stdin?.write(last.content);
         proc.stdin?.end();
-      });
+        await proc.exited;
+      }
       this.setStatus('copied last response');
     } catch {
       this.setStatus('copy failed');
@@ -1250,6 +1316,86 @@ export class CopiumApp {
       this.pendingConfirm = { resolve, select, box };
       this.input.blur();
       select.focus();
+    });
+  }
+
+  /**
+   * Modal single-line text input. Enter submits, Escape cancels (undefined).
+   * `masked` shows dots instead of characters — for API keys.
+   */
+  private promptText(title: string, placeholder: string, masked = false): Promise<string | undefined> {
+    return new Promise<string | undefined>((resolve) => {
+      const box = new BoxRenderable(this.renderer, {
+        id: 'text-prompt-box',
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        width: 72,
+        height: 7,
+        marginLeft: -36,
+        marginTop: -3,
+        border: true,
+        borderStyle: 'double',
+        borderColor: this.theme.accent,
+        backgroundColor: this.theme.bg,
+        title: ` ${title} `,
+        titleAlignment: 'center',
+        padding: 1,
+        zIndex: 200,
+      });
+
+      const input = new TextareaRenderable(this.renderer, {
+        id: 'text-prompt-input',
+        height: 1,
+        width: '100%',
+        backgroundColor: this.theme.bg,
+        textColor: this.theme.fg,
+        focusedBackgroundColor: this.theme.bg,
+        focusedTextColor: this.theme.fg,
+        placeholder,
+        placeholderColor: this.theme.muted,
+      });
+      box.add(input);
+      const hint = new TextRenderable(this.renderer, {
+        id: 'text-prompt-hint',
+        content: masked ? 'Enter: save · Escape: cancel · input is hidden' : 'Enter: save · Escape: cancel',
+        fg: this.theme.muted,
+      });
+      box.add(hint);
+      this.renderer.root.add(box);
+
+      const cleanup = () => {
+        const value = input.plainText.trim();
+        this.renderer.root.remove(box);
+        box.destroy();
+        this.pendingConfirm = undefined;
+        this.input.focus();
+        resolve(value || undefined);
+      };
+      const cancel = () => {
+        this.renderer.root.remove(box);
+        box.destroy();
+        this.pendingConfirm = undefined;
+        this.input.focus();
+        resolve(undefined);
+      };
+
+      const keyHandler = (key: KeyEvent) => {
+        if (key.name === 'escape') {
+          this.renderer.keyInput.removeListener?.('keypress', keyHandler);
+          cancel();
+        }
+      };
+      this.renderer.keyInput.on('keypress', keyHandler);
+
+      input.onSubmit = () => {
+        this.renderer.keyInput.removeListener?.('keypress', keyHandler);
+        cleanup();
+      };
+
+      this.pendingConfirm = { resolve: () => {}, select: input as unknown as SelectRenderable, box };
+      this.input.blur();
+      input.focus();
     });
   }
 

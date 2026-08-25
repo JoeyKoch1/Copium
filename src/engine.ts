@@ -4,7 +4,7 @@ import { CopiumConfig } from './config/types';
 import { ToolRegistry } from './agent/toolRegistry';
 import { ToolContext } from './agent/baseTool';
 import { SwarmManager } from './swarm/swarmManager';
-import { SwarmAgentRole, SwarmTask, SwarmMessage } from './swarm/types';
+import { SwarmTask, SwarmMessage } from './swarm/types';
 import { MemoryBank } from './swarm/memoryBank';
 import { buildSystemPrompt } from './prompt';
 import { loadSkills, selectAutoSkills, Skill } from './skills/loader';

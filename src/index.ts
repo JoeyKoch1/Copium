@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createCliRenderer, Text, Box } from '@opentui/core';
+import { createCliRenderer } from '@opentui/core';
 import { loadConfig, saveConfig, configFile, CopiumConfig, DEFAULT_CONFIG, mergeConfig, validateProvider, validatePermissionLevel } from './config';
 import { createProvider } from './providers';
 import { ToolRegistry } from './agent';
