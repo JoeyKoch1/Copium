@@ -11,7 +11,7 @@ Why cope with expensive AI coding tools when Copium is free. Copium is a termina
 ## Features
 
 - **Multi-provider support** - OpenRouter, BYOK OpenAI-compatible endpoints, and Ollama local models
-- **Free by default** - Defaults to OpenRouter free auto-routed models. No credit card required
+- **Free by default** - Runs on OpenRouter's free models. No credit card, no subscription; just a free OpenRouter account key
 - **Swarm agents** - Run a coordinated explorer → coder → reviewer pipeline with shared memory
 - **Agent tools** - Read/write files, run commands, search code, check git status/diff
 - **Persistent memory** - Every request and response is logged in compressed JSON so the agent always has context
@@ -28,10 +28,24 @@ Why cope with expensive AI coding tools when Copium is free. Copium is a termina
 
 ```bash
 npm install -g @0x5278/copium
+```
+
+**Restart your terminal**, then start it:
+
+```bash
 copium
 ```
 
-First run: type `/aiauth` to pick a provider and paste your API key (saved permanently). Free OpenRouter models work with no key at all.
+### First run: connect a provider
+
+Even the free OpenRouter models need a (free) API key, so do this once:
+
+1. Grab a free key at [openrouter.ai/keys](https://openrouter.ai/keys)
+2. In Copium, type `/aiauth`
+3. Pick **openrouter**
+4. Paste your key, hit **Enter**
+
+That's it — the key is saved to your config permanently. Every future `copium` launch just works. Run `/model` to pick from the free models (sorted first).
 
 Or run from source:
 
@@ -157,7 +171,7 @@ By default, three agents run **in sequence**, each handing its output to the nex
 
 | Provider | Default Model | Notes |
 |----------|--------------|-------|
-| OpenRouter | cohere/north-mini-code:free | Free model, no API key needed |
+| OpenRouter | cohere/north-mini-code:free | Free models available (free account key required) |
 | BYOK | deepseek-chat | Bring your own OpenAI-compatible endpoint |
 | Ollama | (first available) | Local models, fully offline |
 

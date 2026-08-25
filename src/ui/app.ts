@@ -1354,6 +1354,11 @@ export class CopiumApp {
         focusedTextColor: this.theme.fg,
         placeholder,
         placeholderColor: this.theme.muted,
+        // Default library bindings require Alt+Enter for submit; use plain Enter.
+        keyBindings: [
+          { name: 'return', action: 'submit' },
+          { name: 'kpenter', action: 'submit' },
+        ],
       });
       box.add(input);
       const hint = new TextRenderable(this.renderer, {
