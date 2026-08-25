@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { createCliRenderer, Text, Box } from '@opentui/core';
 import { loadConfig, saveConfig, configFile, CopiumConfig, DEFAULT_CONFIG, mergeConfig, validateProvider, validatePermissionLevel } from './config';
 import { createProvider } from './providers';

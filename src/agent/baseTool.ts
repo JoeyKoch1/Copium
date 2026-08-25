@@ -11,7 +11,7 @@ export interface ToolResult {
 export interface ToolContext {
   workspaceRoot: string;
   permissionLevel: PermissionLevel;
-  confirmAction: (message: string) => Promise<boolean>;
+  confirmAction: (message: string, toolName?: string) => Promise<boolean>;
   provider?: ModelProvider | null;
   config?: CopiumConfig;
 }
@@ -21,20 +21,24 @@ export abstract class BaseTool {
   abstract description: string;
   abstract parameters: ToolDefinition['parameters'];
 
+  /** True if this tool mutates the workspace and is blocked in read-only mode. */
+  protected isWrite: boolean = false;
+
   abstract execute(context: ToolContext, args: Record<string, unknown>): Promise<ToolResult>;
 
   protected requiresConfirmation(_args: Record<string, unknown>): boolean {
-    return false;
+    return this.isWrite;
   }
 
   async run(context: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-    if (context.permissionLevel === 'read-only' && this.isWriteOperation(args)) {
+    if (context.permissionLevel === 'read-only' && this.isWrite) {
       return { success: false, error: 'Permission denied: write operations blocked in read-only mode' };
     }
 
     if (this.requiresConfirmation(args) && context.permissionLevel !== 'auto-execute') {
       const confirmed = await context.confirmAction(
         `Copium wants to ${this.description}. Allow?`,
+        this.name,
       );
       if (!confirmed) {
         return { success: false, error: 'User denied permission' };
@@ -42,14 +46,5 @@ export abstract class BaseTool {
     }
 
     return this.execute(context, args);
-  }
-
-  private isWriteOperation(_args: Record<string, unknown>): boolean {
-    return (
-      this.name === 'writeFile' ||
-      this.name === 'applyEdit' ||
-      this.name === 'runCommand' ||
-      this.name === 'gitCommit'
-    );
   }
 }

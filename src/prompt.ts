@@ -13,6 +13,7 @@ export function buildSystemPrompt(
   config: CopiumConfig,
   workspaceRoot: string,
   toolDefinitions: ToolDefinition[],
+  skillsSection = '',
 ): string {
   const isGit = workspaceIsGit(workspaceRoot);
 
@@ -106,7 +107,7 @@ Guidelines:
 
 - Always respect the permission level in force (read-only, propose-edits, or auto-execute). Write/command tools prompt the user for approval unless in auto-execute mode.
 - Never run destructive commands without confirmation (rm -rf, git push --force, deleting .git, etc.).
-- Do not attempt to read secrets such as .env files for exfiltration purposes.`;
+- Do not attempt to read secrets such as .env files for exfiltration purposes.${skillsSection}`;
 }
 
 function describeModel(config: CopiumConfig): string {

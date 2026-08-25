@@ -70,6 +70,7 @@ export class OpenRouterProvider implements ModelProvider {
     messages: ChatMessage[],
     callbacks: StreamCallbacks,
     tools?: ToolDefinition[],
+    signal?: AbortSignal,
   ): Promise<ToolCall[] | null> {
     const body: Record<string, unknown> = {
       model: this.preferredModel,
@@ -98,6 +99,9 @@ export class OpenRouterProvider implements ModelProvider {
         'X-OpenRouter-Title': 'Copium',
       },
       callbacks,
+      undefined,
+      undefined,
+      signal,
     );
   }
 }

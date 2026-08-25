@@ -1,0 +1,5 @@
+{
+  "name": "wordcount",
+  "version": "1.0.0",
+  "description": "Example plugin: /wc counts words in a file, plus a turn-start demo hook"
+}

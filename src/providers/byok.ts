@@ -19,6 +19,7 @@ export class BYOKProvider implements ModelProvider {
     messages: ChatMessage[],
     callbacks: StreamCallbacks,
     tools?: ToolDefinition[],
+    signal?: AbortSignal,
   ): Promise<ToolCall[] | null> {
     const body: Record<string, unknown> = {
       model: this.model,
@@ -45,6 +46,9 @@ export class BYOKProvider implements ModelProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       callbacks,
+      undefined,
+      undefined,
+      signal,
     );
   }
 }

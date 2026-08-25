@@ -50,9 +50,69 @@ Type these in the input box:
 | `/swarm <task>` | Run a swarm of agents on a task |
 | `/tools` | List the tools the agent can use |
 | `/config` | Show current provider/model/permission/swarm config |
+| `/stats` | Session stats: turns, tool calls, tokens, context % |
+| `/sessions` | Resume a previous saved session |
+| `/export [id] [dest]` | Export a session as a shareable folder |
+| `/import <folder>` | Import an exported session folder |
+| `/skill [name]` | List skills, or arm one for your next message |
+| `/plugins` | List discovered plugins and their commands |
+| `/theme` | Pick a color theme (built-in or custom) |
+| `/bypassperms` | Toggle never-ask permission mode (`/yolo`) |
 | `/clear` | Clear the transcript |
 | `/help` | Show help overlay |
 | `/version` | Print version |
+
+## Skills
+
+Skills are markdown files that inject instructions into the agent's system prompt. Place them in `~/.config/copium/skills/` (all projects) or `.copium/skills/` (this project only):
+
+```markdown
+---
+name: commit-style
+description: Conventional Commits for this repo
+trigger: auto          # auto = keyword-matched, manual = via /skill <name>
+keywords: commit, git commit
+---
+When creating git commits, use Conventional Commits format...
+```
+
+Auto-triggered skills activate when your message matches their keywords. Manual skills are armed with `/skill <name>` and apply to the next message.
+
+## Plugins
+
+Plugins are folders with a `plugin.json` and an entry module. Drop them in `~/.config/copium/plugins/` (user) or `.copium/plugins/` (project):
+
+```
+my-plugin/
+  plugin.json     # { "name": "my-plugin", "version": "1.0.0" }
+  main.ts         # default export: (ctx: PluginContext) => void
+```
+
+```ts
+// my-plugin/main.ts
+import type { PluginContext } from 'copium/src/plugins/loader';
+
+export default function main(ctx: PluginContext) {
+  ctx.registerCommand('hello', 'say hi', (arg) => console.error(`hi ${arg}`));
+  ctx.registerTool(new MyCustomTool());
+  ctx.registerTheme({ name: 'my-theme', accent: '#ff5500' });
+  ctx.on('turn-end', () => console.error('turn finished'));
+}
+```
+
+Plugins can register tools (available to the model), slash commands, themes, and subscribe to lifecycle events (`turn-start`, `turn-end`, `tool-call`). Disable a plugin with `"plugins": { "my-plugin": false }` in config. See `examples/plugins/wordcount/` for a working example.
+
+⚠️ Plugins run with full runtime access — only install plugins you trust.
+
+## Custom Themes
+
+Drop a JSON file in `~/.config/copium/themes/my-theme.json`. Partial palettes merge over defaults:
+
+```json
+{ "name": "my-theme", "accent": "#ff5500", "bg": "#0d0d0d" }
+```
+
+Pick it with `/theme` (custom themes are marked `(custom)`).
 
 In one-shot mode you can pass `/model <id>` as the prompt to just switch the model:
 

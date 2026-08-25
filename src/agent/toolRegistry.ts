@@ -2,6 +2,7 @@ import type { PermissionLevel, ToolDefinition } from '../providers/types';
 import type { BaseTool, ToolContext, ToolResult } from './baseTool';
 import {
   ReadFileTool,
+  ReadImageTool,
   WriteFileTool,
   SearchFilesTool,
   ListFilesTool,
@@ -22,6 +23,7 @@ export class ToolRegistry {
 
   constructor() {
     this.register(new ReadFileTool());
+    this.register(new ReadImageTool());
     this.register(new WriteFileTool());
     this.register(new ListFilesTool());
     this.register(new SearchFilesTool());

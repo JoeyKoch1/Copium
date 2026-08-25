@@ -13,12 +13,63 @@ const execFileAsync = promisify(execFile);
 
 export interface SwarmToolContext extends ToolContext {}
 
-function resolvePath(workspaceRoot: string, input: string): string {
-  return path.isAbsolute(input) ? input : path.join(workspaceRoot, input);
+/**
+ * Resolves `input` against workspaceRoot and rejects anything that escapes it
+ * (absolute paths outside the root, `..` traversal). Symlinks are not resolved
+ * here — see the note in resolveWithinWorkspace.
+ */
+function resolveWithinWorkspace(workspaceRoot: string, input: string): string {
+  if (!input) {
+    throw new Error('Path is required.');
+  }
+  const root = path.resolve(workspaceRoot);
+  const resolved = path.resolve(root, input);
+  const rel = path.relative(root, resolved);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Path escapes workspace root: ${input}`);
+  }
+  return resolved;
+}
+
+/** Same as resolveWithinWorkspace but also rejects symlink escapes via realpath. */
+async function resolveRealWithinWorkspace(workspaceRoot: string, input: string): Promise<string> {
+  const resolved = resolveWithinWorkspace(workspaceRoot, input);
+  try {
+    const real = await fs.realpath(resolved);
+    const rel = path.relative(path.resolve(workspaceRoot), real);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(`Path resolves outside workspace root: ${input}`);
+    }
+    return real;
+  } catch (err) {
+    // realpath fails when the file does not exist yet — fine for write paths.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return resolved;
+    throw err;
+  }
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+const DESTRUCTIVE_PATTERNS: Array<[RegExp, string]> = [
+  [/\brm\s+(-[a-z]*[rf][a-z]*\s+)+/i, 'rm -r/-f'],
+  [/\b(rmdir|del)\b.*\/s/i, 'recursive delete'],
+  [/Remove-Item\b.*-Recurse/i, 'Remove-Item -Recurse'],
+  [/\bgit\s+push\b.*--force/i, 'git push --force'],
+  [/\bgit\s+reset\s+--hard/i, 'git reset --hard'],
+  [/\bgit\s+clean\s+-[a-z]*f/i, 'git clean -f'],
+  [/rm\s+-rf?\s+[~\/]/i, 'rm of absolute/home path'],
+  [/\bdd\s+if=/i, 'dd'],
+  [/\bmkfs/i, 'mkfs'],
+  [/\bformat\b.*:/i, 'disk format'],
+];
+
+function findDestructivePattern(command: string): string | null {
+  for (const [re, label] of DESTRUCTIVE_PATTERNS) {
+    if (re.test(command)) return label;
+  }
+  return null;
 }
 
 export class ReadFileTool extends BaseTool {
@@ -40,7 +91,7 @@ export class ReadFileTool extends BaseTool {
     const endLine = typeof args.endLine === 'number' ? args.endLine : undefined;
 
     try {
-      const filePath = resolvePath(context.workspaceRoot, input);
+      const filePath = await resolveRealWithinWorkspace(context.workspaceRoot, input);
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) {
         return { success: false, error: `Not a file: ${input}` };
@@ -63,6 +114,7 @@ export class ReadFileTool extends BaseTool {
 }
 
 export class WriteFileTool extends BaseTool {
+  protected readonly isWrite = true;
   name = 'writeFile';
   description = 'Write content to a file, overwriting existing content.';
   parameters: ToolDefinition['parameters'] = {
@@ -83,10 +135,59 @@ export class WriteFileTool extends BaseTool {
     const content = typeof args.content === 'string' ? args.content : '';
 
     try {
-      const filePath = resolvePath(context.workspaceRoot, input);
+      const filePath = await resolveRealWithinWorkspace(context.workspaceRoot, input);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, content, 'utf-8');
       return { success: true, data: { path: input, bytes: Buffer.byteLength(content, 'utf-8') } };
+    } catch (err) {
+      return { success: false, error: errorMessage(err) };
+    }
+  }
+}
+
+const VISION_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+
+export class ReadImageTool extends BaseTool {
+  name = 'readImage';
+  description =
+    'Read a local image file (png/jpg/webp/gif) and attach it for vision-capable models to analyze. Returns the image as base64 data.';
+  parameters: ToolDefinition['parameters'] = {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Absolute or relative path to the image file.' },
+    },
+    required: ['path'],
+  };
+
+  async execute(context: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
+    const input = typeof args.path === 'string' ? args.path : '';
+    try {
+      const filePath = await resolveRealWithinWorkspace(context.workspaceRoot, input);
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = VISION_MIME[ext];
+      if (!mime) {
+        return { success: false, error: `Unsupported image type: ${ext || '(none)'}. Use png/jpg/jpeg/webp/gif.` };
+      }
+      const stat = await fs.stat(filePath);
+      if (stat.size > 10 * 1024 * 1024) {
+        return { success: false, error: 'Image too large (>10MB).' };
+      }
+      const buf = await fs.readFile(filePath);
+      const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+      return {
+        success: true,
+        data: {
+          note: 'Image attached. If the current model is not vision-capable, it cannot see this.',
+          path: input,
+          imageDataUrl: dataUrl,
+        },
+      };
     } catch (err) {
       return { success: false, error: errorMessage(err) };
     }
@@ -193,6 +294,7 @@ export class GrepFilesTool extends BaseTool {
 }
 
 export class ApplyEditTool extends BaseTool {
+  protected readonly isWrite = true;
   name = 'applyEdit';
   description = 'Apply a targeted edit to a file by replacing an exact substring with new content.';
   parameters: ToolDefinition['parameters'] = {
@@ -219,7 +321,7 @@ export class ApplyEditTool extends BaseTool {
     }
 
     try {
-      const filePath = resolvePath(context.workspaceRoot, input);
+      const filePath = await resolveRealWithinWorkspace(context.workspaceRoot, input);
       const text = await fs.readFile(filePath, 'utf-8');
       if (!text.includes(oldString)) {
         return {
@@ -252,6 +354,17 @@ export class WebFetchTool extends BaseTool {
     const url = typeof args.url === 'string' ? args.url : '';
     if (!url) {
       return { success: false, error: 'url is required for webFetch.' };
+    }
+    // Only http(s): file://, ftp:// and other schemes are not permitted, and
+    // this blocks trivial SSRF into local services via exotic handlers.
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return { success: false, error: `Invalid URL: ${url}` };
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return { success: false, error: `Blocked non-http(s) scheme: ${parsedUrl.protocol}` };
     }
     try {
       const controller = new AbortController();
@@ -353,6 +466,7 @@ function decodeDuckDuckGoUrl(href: string): string {
 }
 
 export class GitCommitTool extends BaseTool {
+  protected readonly isWrite = true;
   name = 'gitCommit';
   description = 'Commit all staged and unstaged changes in the workspace with a message.';
   parameters: ToolDefinition['parameters'] = {
@@ -462,6 +576,7 @@ export class SearchFilesTool extends BaseTool {
 }
 
 export class RunCommandTool extends BaseTool {
+  protected readonly isWrite = true;
   name = 'runCommand';
   description = 'Run a shell command in the workspace and capture its output.';
   parameters: ToolDefinition['parameters'] = {
@@ -481,6 +596,16 @@ export class RunCommandTool extends BaseTool {
     const command = typeof args.command === 'string' ? args.command : '';
     const cwdInput = typeof args.cwd === 'string' ? args.cwd : context.workspaceRoot;
     const cwd = path.isAbsolute(cwdInput) ? cwdInput : path.join(context.workspaceRoot, cwdInput);
+
+    // Destructive-pattern guard: applies at EVERY permission level, including
+    // auto-execute. A prompt-level instruction to the model is not a boundary.
+    const destructive = findDestructivePattern(command);
+    if (destructive) {
+      return {
+        success: false,
+        error: `Blocked potentially destructive command (matched ${destructive}). Run it manually if you really want it.`,
+      };
+    }
 
     try {
       const { stdout, stderr } = await execAsync(command, {

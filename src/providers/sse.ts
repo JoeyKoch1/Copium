@@ -11,9 +11,16 @@ export async function streamChatCompletions(
   headers: Record<string, string>,
   callbacks: StreamCallbacks,
   timeoutMs = 120000,
+  idleTimeoutMs = 60000,
+  signal?: AbortSignal,
 ): Promise<ToolCall[] | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // Propagate an external interrupt (user pressed Escape) to the request.
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
 
   try {
     const response = await fetch(url, {
@@ -45,12 +52,23 @@ export async function streamChatCompletions(
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let sawFinishReason = false;
     let buffer = '';
     const toolCalls: ToolCall[] = [];
 
+    // Idle timeout: reset on every chunk so a stalled mid-stream connection
+    // (common with free-tier providers) errors out instead of hanging forever.
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => controller.abort(), idleTimeoutMs);
+    };
+
+    try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { value, done } = await reader.read();
+      resetIdleTimer();
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -67,6 +85,9 @@ export async function streamChatCompletions(
         }
 
         const result = parseSseLine(data, toolCalls, callbacks);
+        if (result === 'finish-reason-seen') {
+          sawFinishReason = true;
+        }
         if (result === 'tool-calls-done') {
           return toolCalls;
         }
@@ -87,11 +108,25 @@ export async function streamChatCompletions(
       }
     }
 
+    // Stream ended without [DONE] or a finish_reason — the connection was
+    // cut prematurely. Surface it rather than treating truncation as success.
+    if (!sawFinishReason) {
+      callbacks.onError(new Error('Stream ended prematurely (connection closed before completion)'));
+      return toolCalls.length > 0 ? toolCalls : null;
+    }
+
     callbacks.onDone();
     return toolCalls.length > 0 ? toolCalls : null;
+    } finally {
+      if (idleTimer) clearTimeout(idleTimer);
+    }
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === 'AbortError') {
+      if (signal?.aborted) {
+        // User interrupt — not an error, just stop streaming quietly.
+        return null;
+      }
       callbacks.onError(new Error('Provider request timed out'));
       return null;
     }
@@ -104,7 +139,7 @@ function parseSseLine(
   data: string,
   toolCalls: ToolCall[],
   callbacks: StreamCallbacks,
-): void | 'tool-calls-done' {
+): void | 'finish-reason-seen' | 'tool-calls-done' {
   let parsed: any;
   try {
     parsed = JSON.parse(data);
@@ -148,5 +183,8 @@ function parseSseLine(
 
   if (choice.finish_reason === 'tool_calls' && toolCalls.length > 0) {
     return 'tool-calls-done';
+  }
+  if (choice.finish_reason) {
+    return 'finish-reason-seen';
   }
 }

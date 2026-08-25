@@ -21,6 +21,8 @@ describe('config file permissions', () => {
   });
 
   it('writes the config file with owner-only (0600) permissions, since it may hold API keys', async () => {
+    // chmod is a no-op on Windows NTFS — permission bits aren't POSIX there.
+    if (process.platform === 'win32') return;
     const config = { ...DEFAULT_CONFIG, openrouter: { ...DEFAULT_CONFIG.openrouter, apiKey: 'sk-secret' } };
     await saveConfig(config);
 

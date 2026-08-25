@@ -8,20 +8,26 @@
   "bin": {
     "copium": "./src/index.ts"
   },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx eslint src test --ext .ts",
     "format": "bunx prettier --write src test",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run typecheck && bun test"
   },
   "dependencies": {
-    "@opentui/core": "^0.5.2",
-    "bun": "^1.4.0"
+    "@opentui/core": "^0.5.2"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
+    "@types/node": "^22.0.0",
     "typescript": "^5.5.0"
   },
   "engines": {
@@ -37,5 +43,13 @@
     "local",
     "free"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JoeyKoch1/Copium.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JoeyKoch1/Copium/issues"
+  },
+  "homepage": "https://github.com/JoeyKoch1/Copium#readme"
 }

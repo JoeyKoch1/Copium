@@ -7,6 +7,7 @@ import { SwarmManager } from './swarm/swarmManager';
 import { SwarmAgentRole, SwarmTask, SwarmMessage } from './swarm/types';
 import { MemoryBank } from './swarm/memoryBank';
 import { buildSystemPrompt } from './prompt';
+import { loadSkills, selectAutoSkills, Skill } from './skills/loader';
 
 export interface ChatCallbacks {
   onToken: (token: string) => void;
@@ -14,16 +15,27 @@ export interface ChatCallbacks {
   onToolCall: (toolName: string, args: Record<string, unknown>) => void;
   onToolResult: (toolName: string, result: unknown) => void;
   onMessage: (role: 'assistant' | 'tool', content: string) => void;
+  /** Structured file-edit event for diff rendering (applyEdit/writeFile). */
+  onFileEdit?: (path: string, kind: 'write' | 'edit', before: string | null, after: string) => void;
+  /** Optional plugin lifecycle hook emitter. */
+  emitPluginEvent?: (event: 'turn-start' | 'turn-end' | 'tool-call', payload?: unknown) => void;
   onDone: () => void;
   onError: (error: Error) => void;
-  confirm: (message: string) => Promise<boolean>;
+  confirm: (message: string, toolName?: string) => Promise<boolean>;
 }
+
+/** Permission levels that never prompt. */
+const BYPASS_LEVELS: Array<CopiumConfig['permissionLevel']> = ['auto-execute', 'bypass'];
 
 export class ChatEngine {
   private messages: ChatMessage[] = [];
   private memoryBank: MemoryBank;
   private sessionId: string;
   private hasErrored = false;
+  /** Aborts the in-flight provider stream when the user presses Escape. */
+  private activeAbort?: AbortController;
+  /** Set while a user interrupt is pending for the current stream. */
+  private interrupted = false;
 
   constructor(
     private provider: ModelProvider,
@@ -52,6 +64,23 @@ export class ChatEngine {
     return this.toolRegistry.listTools();
   }
 
+  /** Abort the in-flight provider stream. Partial output is kept in history. */
+  interrupt(): void {
+    if (this.activeAbort && !this.activeAbort.signal.aborted) {
+      this.interrupted = true;
+      this.activeAbort.abort();
+    }
+  }
+
+  isBusy(): boolean {
+    return this.activeAbort !== undefined;
+  }
+
+  /** Replace engine conversation history (session resume). */
+  restoreMessages(messages: ChatMessage[]): void {
+    this.messages = messages;
+  }
+
   async send(prompt: string): Promise<void> {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -69,13 +98,20 @@ export class ChatEngine {
 
     this.messages.push({ role: 'user', content: trimmed });
 
+    this.callbacks.emitPluginEvent?.('turn-start', { prompt: trimmed });
+    this.activeAbort = new AbortController();
+    this.interrupted = false;
+
+    try {
     const systemPrompt = buildSystemPrompt(
       this.config,
       this.workspaceRoot,
       this.toolRegistry.getDefinitions(),
+      await this.buildSkillPrompt(trimmed),
     );
 
-    const maxIterations = 10;
+    const maxIterations = 25;
+    let hitIterationCap = false;
     for (let i = 0; i < maxIterations; i++) {
       let assistantContent = '';
       const callbacks: StreamCallbacks = {
@@ -94,13 +130,28 @@ export class ChatEngine {
         [...recentContext, { role: 'system', content: systemPrompt }, ...this.messages],
         callbacks,
         this.toolRegistry.getDefinitions(),
+        this.activeAbort.signal,
       );
+
+      // User pressed Escape mid-stream — keep partial output and stop the turn.
+      if (this.interrupted) {
+        if (assistantContent.length > 0) {
+          this.messages.push({ role: 'assistant', content: assistantContent });
+          this.callbacks.onMessage('assistant', '_[interrupted]_');
+        }
+        return;
+      }
 
       if (this.hasErrored) break;
 
       if (!toolCalls || toolCalls.length === 0) {
         if (assistantContent.length > 0) {
           this.messages.push({ role: 'assistant', content: assistantContent });
+        } else if (!this.hasErrored) {
+          // Stream completed cleanly but produced neither text nor tool calls.
+          // Surface it instead of silently ending the turn.
+          this.hasErrored = true;
+          this.callbacks.onError(new Error('Provider returned an empty completion'));
         }
         break;
       }
@@ -111,15 +162,41 @@ export class ChatEngine {
       this.messages.push({ role: 'assistant', content: assistantContent, tool_calls: toolCalls });
 
       for (const tc of toolCalls) {
-        this.callbacks.onToolCall(tc.function.name, safeParse(tc.function.arguments));
+        const args = safeParse(tc.function.arguments);
+        this.callbacks.emitPluginEvent?.('tool-call', { tool: tc.function.name, args });
+        this.callbacks.onToolCall(tc.function.name, args);
         const toolContext = this.buildToolContext();
         let result;
         try {
-          result = await this.toolRegistry.execute(
-            tc.function.name,
-            safeParse(tc.function.arguments),
-            toolContext,
-          );
+          // Capture pre-edit content for diff rendering.
+          let beforeContent: string | null = null;
+          const editPath = typeof args.path === 'string' ? args.path : '';
+          if (
+            (tc.function.name === 'writeFile' || tc.function.name === 'applyEdit') &&
+            editPath
+          ) {
+            try {
+              beforeContent = await import('node:fs/promises').then((f) =>
+                f.readFile(this.resolveWorkspacePath(editPath), 'utf-8'),
+              );
+            } catch {
+              beforeContent = null; // new file
+            }
+          }
+
+          result = await this.toolRegistry.execute(tc.function.name, args, toolContext);
+
+          if (result.success && (tc.function.name === 'writeFile' || tc.function.name === 'applyEdit')) {
+            const after =
+              tc.function.name === 'writeFile'
+                ? typeof args.content === 'string'
+                  ? args.content
+                  : ''
+                : await import('node:fs/promises')
+                    .then((f) => f.readFile(this.resolveWorkspacePath(editPath), 'utf-8'))
+                    .catch(() => '');
+            this.callbacks.onFileEdit?.(editPath, tc.function.name as 'write' | 'edit', beforeContent, after);
+          }
         } catch (err) {
           result = {
             success: false,
@@ -135,20 +212,94 @@ export class ChatEngine {
           name: tc.function.name,
         });
 
+        // If a readImage result came back, append it as a user-visible image
+        // part so vision models can actually see it on the next request.
+        const imageDataUrl = extractImageDataUrl(result);
+        if (imageDataUrl) {
+          this.messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: '[Image attached from readImage — analyze it in context of the task]' },
+              { type: 'image_url', image_url: { url: imageDataUrl } },
+            ],
+          });
+        }
+
         this.callbacks.onToolResult(tc.function.name, result);
         this.callbacks.onMessage('tool', renderToolResult(result));
       }
+      if (i === maxIterations - 1) hitIterationCap = true;
+    }
+
+    if (hitIterationCap) {
+      this.messages.push({
+        role: 'assistant',
+        content: '_Stopped: reached the tool-round limit mid-task. Ask me to continue if the task is incomplete._',
+      });
+      this.callbacks.onMessage(
+        'assistant',
+        '**Stopped** after the maximum number of tool rounds — the task may be incomplete. Say "continue" to resume.',
+      );
     }
 
     await this.persistMemory(trimmed);
     this.callbacks.onDone();
+    this.callbacks.emitPluginEvent?.('turn-end', { prompt: trimmed });
+    } finally {
+      this.activeAbort = undefined;
+      this.interrupted = false;
+    }
+  }
+
+  private resolveWorkspacePath(input: string): string {
+    return path.isAbsolute(input) ? input : path.join(this.workspaceRoot, input);
+  }
+
+  /** Skills explicitly invoked for the next turn (via /skill <name>). */
+  private forcedSkills: string[] = [];
+
+  /** Queue a manual skill to be injected on the next send(). */
+  queueManualSkill(name: string): void {
+    this.forcedSkills.push(name);
+  }
+
+  /**
+   * Build the skills section of the system prompt: auto-triggered skills whose
+   * keywords match the user prompt, plus any manually-queued skill.
+   */
+  private async buildSkillPrompt(userPrompt: string): Promise<string> {
+    let skills: Skill[] = [];
+    try {
+      skills = await loadSkills(this.workspaceRoot);
+    } catch {
+      return '';
+    }
+    if (skills.length === 0) return '';
+
+    const auto = selectAutoSkills(skills, userPrompt);
+    const forced: Skill[] = [];
+    for (const name of this.forcedSkills.splice(0)) {
+      const s = skills.find((x) => x.name === name);
+      if (s) forced.push(s);
+    }
+
+    const active = [...new Map([...auto, ...forced].map((s) => [s.name, s])).values()];
+    if (active.length === 0) return '';
+
+    const sections = active
+      .map((s) => `<skill name="${s.name}">\n${s.content}\n</skill>`)
+      .join('\n\n');
+    return `\n\n# Active Skills\n\nThe following project/user skills are ACTIVE for this request. Follow their instructions:\n\n${sections}`;
   }
 
   private buildToolContext(): ToolContext {
     return {
       workspaceRoot: this.workspaceRoot,
       permissionLevel: this.config.permissionLevel,
-      confirmAction: (message: string) => this.callbacks.confirm(message),
+      confirmAction: (message: string, toolName?: string) =>
+        BYPASS_LEVELS.includes(this.config.permissionLevel)
+          ? Promise.resolve(true)
+          : this.callbacks.confirm(message, toolName),
       provider: this.provider,
       config: this.config,
     };
@@ -185,10 +336,7 @@ export class ChatEngine {
         'You are a reviewer agent. Your job is to review code changes for correctness, security, and best practices. Report issues clearly.',
     });
 
-    const roles: SwarmAgentRole[] = [];
-    for (const [, agent] of (swarm as any)['agents']) {
-      roles.push(agent.role);
-    }
+    const roles = swarm.getRegisteredRoles();
 
     const task: SwarmTask = {
       id: `swarm_${Date.now()}`,
@@ -212,16 +360,21 @@ export class ChatEngine {
     }
   }
 
+  /** Cached memory context — loaded once per session, not on every message. */
+  private memoryContextCache?: ChatMessage[];
+
   private async loadMemoryContext(): Promise<ChatMessage[]> {
+    if (this.memoryContextCache) return this.memoryContextCache;
     const messages = await this.memoryBank.getGlobalRecentContext(40);
     if (messages.length === 0) return [];
     const summary = messages.map((m) => m.content).join('\n').slice(0, 2000);
-    return [
+    this.memoryContextCache = [
       {
         role: 'system',
         content: `Previous Copium session context:\n${summary}`,
       },
     ];
+    return this.memoryContextCache;
   }
 
   private async persistMemory(prompt: string): Promise<void> {
@@ -235,16 +388,40 @@ export class ChatEngine {
     // Capture the last assistant text for context.
     const assistant = [...this.messages]
       .reverse()
-      .find((m) => m.role === 'assistant' && m.content.length > 0);
+      .find((m) => m.role === 'assistant' && messageText(m).length > 0);
     if (assistant) {
       messages.push({
         role: 'assistant',
-        content: assistant.content,
+        content: messageText(assistant),
         timestamp: Date.now(),
       });
     }
     await this.memoryBank.logInteraction(this.sessionId, messages);
   }
+}
+
+/** Extract an image data URL from a readImage tool result, if present. */
+function extractImageDataUrl(result: unknown): string | null {
+  if (
+    result &&
+    typeof result === 'object' &&
+    'data' in result &&
+    result.data &&
+    typeof result.data === 'object' &&
+    'imageDataUrl' in result.data &&
+    typeof (result.data as { imageDataUrl?: unknown }).imageDataUrl === 'string'
+  ) {
+    return (result.data as { imageDataUrl: string }).imageDataUrl;
+  }
+  return null;
+}
+
+/** Extract plain text from a message whose content may include image parts. */
+function messageText(m: ChatMessage): string {
+  if (typeof m.content === 'string') return m.content;
+  return m.content
+    .map((p) => (p.type === 'text' ? p.text : '[image]'))
+    .join('\n');
 }
 
 function safeParse(json: string): Record<string, unknown> {

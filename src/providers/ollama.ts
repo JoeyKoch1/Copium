@@ -11,6 +11,33 @@ function safeJsonParse(json: string): unknown {
   }
 }
 
+/**
+ * Convert a message to Ollama's format. Ollama takes plain text content plus
+ * an array of raw base64 strings in `images`; extract them from content parts.
+ */
+function toOllamaMessage(m: ChatMessage): Record<string, unknown> {
+  if (typeof m.content === 'string') {
+    return { role: m.role, content: m.content };
+  }
+  const texts: string[] = [];
+  const images: string[] = [];
+  for (const part of m.content) {
+    if (part.type === 'text') {
+      texts.push(part.text);
+    } else {
+      const url = part.image_url.url;
+      // Strip data URL prefix; Ollama wants bare base64.
+      const commaIdx = url.indexOf(',');
+      images.push(commaIdx >= 0 && url.startsWith('data:') ? url.slice(commaIdx + 1) : url);
+    }
+  }
+  return {
+    role: m.role,
+    content: texts.join('\n'),
+    ...(images.length > 0 ? { images } : {}),
+  };
+}
+
 export class OllamaProvider implements ModelProvider {
   readonly id = 'ollama';
   readonly name = 'Ollama (Local)';
@@ -60,9 +87,14 @@ export class OllamaProvider implements ModelProvider {
     messages: ChatMessage[],
     callbacks: StreamCallbacks,
     tools?: ToolDefinition[],
+    signal?: AbortSignal,
   ): Promise<ToolCall[] | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000);
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
     const url = `${this.endpoint}/api/chat`;
 
     try {
@@ -79,24 +111,26 @@ export class OllamaProvider implements ModelProvider {
 
       const body: Record<string, unknown> = {
         model,
-        messages: messages.map(({ role, content, tool_call_id, name, tool_calls }) => ({
-          role,
-          content,
-          ...(tool_call_id ? { tool_call_id } : {}),
-          ...(name ? { name } : {}),
-          ...(tool_calls
-            ? {
-                tool_calls: tool_calls.map((tc) => ({
-                  id: tc.id,
-                  type: tc.type,
-                  function: {
-                    name: tc.function.name,
-                    arguments: safeJsonParse(tc.function.arguments),
-                  },
-                })),
-              }
-            : {}),
-        })),
+        messages: messages.map((m) => {
+          const base = toOllamaMessage(m);
+          return {
+            ...base,
+            ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+            ...(m.name ? { name: m.name } : {}),
+            ...(m.tool_calls
+              ? {
+                  tool_calls: m.tool_calls.map((tc) => ({
+                    id: tc.id,
+                    type: tc.type,
+                    function: {
+                      name: tc.function.name,
+                      arguments: safeJsonParse(tc.function.arguments),
+                    },
+                  })),
+                }
+              : {}),
+          };
+        }),
         stream: true,
       };
 
@@ -197,6 +231,7 @@ export class OllamaProvider implements ModelProvider {
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof Error && err.name === 'AbortError') {
+        if (signal?.aborted) return null; // user interrupt
         callbacks.onError(new Error('Ollama request timed out'));
         return null;
       }

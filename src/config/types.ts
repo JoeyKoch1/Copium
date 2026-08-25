@@ -1,6 +1,6 @@
 export type ProviderType = 'ollama' | 'openrouter' | 'byok';
 
-export type PermissionLevel = 'read-only' | 'propose-edits' | 'auto-execute';
+export type PermissionLevel = 'read-only' | 'propose-edits' | 'auto-execute' | 'bypass';
 
 export interface CopiumConfig {
   provider: ProviderType;
@@ -18,6 +18,8 @@ export interface CopiumConfig {
     model: string;
   };
   permissionLevel: PermissionLevel;
+  theme: string;
+  plugins?: Record<string, boolean>;
   swarm: {
     enabled: boolean;
     maxAgents: number;
@@ -40,6 +42,8 @@ export const DEFAULT_CONFIG: CopiumConfig = {
     model: '',
   },
   permissionLevel: 'propose-edits',
+  theme: 'copium-dark',
+  plugins: {},
   swarm: {
     enabled: false,
     maxAgents: 3,
@@ -63,6 +67,6 @@ export function validateProvider(raw: string): ProviderType {
 }
 
 export function validatePermissionLevel(raw: string): PermissionLevel {
-  const valid: PermissionLevel[] = ['read-only', 'propose-edits', 'auto-execute'];
+  const valid: PermissionLevel[] = ['read-only', 'propose-edits', 'auto-execute', 'bypass'];
   return valid.includes(raw as PermissionLevel) ? (raw as PermissionLevel) : 'propose-edits';
 }

@@ -1,6 +1,12 @@
+/** A content part for multimodal messages (text or image). */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /** Plain text, or an array of text/image parts for vision models. */
+  content: string | ContentPart[];
   tool_call_id?: string;
   name?: string;
   /** Present on an assistant message that requested one or more tool calls. */
@@ -40,7 +46,8 @@ export interface ModelProvider {
     messages: ChatMessage[],
     callbacks: StreamCallbacks,
     tools?: ToolDefinition[],
+    signal?: AbortSignal,
   ): Promise<ToolCall[] | null>;
 }
 
-export type PermissionLevel = 'read-only' | 'propose-edits' | 'auto-execute';
+export type PermissionLevel = 'read-only' | 'propose-edits' | 'auto-execute' | 'bypass';
