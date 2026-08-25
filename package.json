@@ -17,7 +17,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@opentui/core": "^0.5.2"
+    "@opentui/core": "^0.5.2",
+    "bun": "^1.4.0"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
