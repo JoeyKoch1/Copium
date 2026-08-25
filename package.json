@@ -1,5 +1,5 @@
 {
-  "name": "copium",
+  "name": "@0x5278/copium",
   "version": "1.0.0",
   "description": "100% free, no-account, no-subscription coding agent for the terminal",
   "type": "module",
