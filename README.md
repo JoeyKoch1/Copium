@@ -24,6 +24,17 @@ Why cope with expensive AI coding tools when Copium is free. Copium is a termina
 
 ## Quick Start
 
+**Install from npm** (requires [Bun](https://bun.sh) >= 1.1):
+
+```bash
+npm install -g @0x5278/copium
+copium
+```
+
+First run: type `/aiauth` to pick a provider and paste your API key (saved permanently). Free OpenRouter models work with no key at all.
+
+Or run from source:
+
 ```bash
 bun install
 bun start
@@ -35,6 +46,9 @@ This starts the interactive chat UI. Type a prompt and press Enter to send (Shif
 |-----|--------|
 | Enter | Send message |
 | Shift+Enter | Newline |
+| Escape | Interrupt generation |
+| `/` + `Tab` | Command autocomplete |
+| ↑ / ↓ | Recall previous prompts |
 | ? | Show help overlay |
 | Ctrl+L | Clear the transcript |
 
